@@ -132,12 +132,12 @@ def perceive(text: str) -> tuple[ConversationFrame, UserEmotionReading]:
 
     has_char_anchor = "你" in t
 
+    # 二人称模式与设备故障先于"短答"判定：
+    # "笨蛋""走开""卡了"都只有两个字，但绝不是"嗯"那种低信息短答
     if _GREETING_RE.match(t):
         itype, target = InputType.GREETING, EmotionTarget.TOPIC
     elif _FAREWELL_RE.search(t):
         itype, target = InputType.FAREWELL, EmotionTarget.TOPIC
-    elif t in _SHORT_SET or len(t) <= 2:
-        itype, target = InputType.SHORT_REPLY, EmotionTarget.TOPIC
     elif _ATTACK_CHAR_RE.search(t) or _COMPARE_RE.search(t):
         itype, target = InputType.CHARACTER_ATTACK, EmotionTarget.CHARACTER
         label, valence, arousal = "angry", -0.6, 0.7
@@ -155,6 +155,8 @@ def perceive(text: str) -> tuple[ConversationFrame, UserEmotionReading]:
         itype, target = InputType.DEVICE_COMPLAINT, EmotionTarget.DEVICE
         if valence >= 0:
             label, valence, arousal = "annoyed", -0.4, 0.6
+    elif t in _SHORT_SET or len(t) <= 2:
+        itype, target = InputType.SHORT_REPLY, EmotionTarget.TOPIC
     elif _SELF_BLAME_RE.search(t):
         itype, target = InputType.SELF_BLAME, EmotionTarget.USER_SELF
         label, valence, arousal = "sad", -0.7, 0.45

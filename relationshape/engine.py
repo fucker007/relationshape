@@ -259,7 +259,10 @@ class CompanionEngine:
         frame = pend.get("frame")
         reading = pend.get("reading")
         if frame is None or reading is None:
+            # 无 prepare 的直接提交（如历史导入）：感知与语义事实在这里补做
             frame, reading = perceive(user_text)
+            st.memory.extract_facts(user_text, frame.actors)
+            st.adaptation.maybe_learn_address(user_text)
 
         # ---- 幽默学习：先看用户对上一轮幽默的反应，再登记本轮幽默 ----
         st.adaptation.react_to_pending_humor(user_text, st.turn_index)

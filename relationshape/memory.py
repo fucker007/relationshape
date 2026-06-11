@@ -245,11 +245,6 @@ class MemoryBank:
                 p.status = status
                 return
 
-    def touch_surfaced(self, pids: list[str]) -> None:
-        for p in self.promises:
-            if p.pid in pids:
-                p.surfaced += 1
-
     # ------------------------------------------------------------------ serde
 
     def to_dict(self) -> dict:

@@ -104,7 +104,12 @@ def plan_humor(
         + (0.15 if frame.bid.value in ("play", "connection") else 0.0)
     )
     if propensity >= 0.38 and frame.input_type in (InputType.TOPIC, InputType.CREATIVE_TOPIC, InputType.GOOD_NEWS, InputType.SHORT_REPLY, InputType.GREETING):
-        material = frame.topic_tokens[0] if frame.topic_tokens else "当下的场景"
+        # 素材绝不取自对方的雷区（benign 检查同样约束亲和型玩笑）
+        safe_tokens = [
+            tok for tok in frame.topic_tokens
+            if not any(av in tok or tok in av for av in aversion_tags)
+        ]
+        material = safe_tokens[0] if safe_tokens else "当下的场景"
         return HumorPlan(
             style=HumorStyle.AFFILIATIVE,
             device="exaggeration",
