@@ -234,3 +234,14 @@ def test_eq_does_not_touch_safety_turns(tmp_path):
     d = eng.prepare_turn("u", "爸爸今天打我了", now=T0)
     assert d.metamessage is None          # 安全轮不经过高情商层
     assert d.safety is not None
+
+
+def test_crisis_sets_emotional_inertia(tmp_path):
+    """危机轮之后哪怕对方说"没事/乱说的"，下一轮也必须知觉检核且禁幽默。"""
+    eng = _engine(tmp_path)
+    eng.prepare_turn("u", "我不想活了", now=T0)
+    eng.commit("u", "我不想活了", "（安全回应）", now=T0)
+    assert eng._state("u").last_user_valence <= -0.5
+    d = eng.prepare_turn("u", "没什么，刚才乱说的", now=T0 + timedelta(minutes=2))
+    assert Act.PERCEPTION_CHECK in d.acts
+    assert d.humor is None

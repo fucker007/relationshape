@@ -278,6 +278,8 @@ class CompanionEngine:
             st.memory.add_episode(user_text, valence=-0.9, arousal=0.8, now=now, sensitive=True)
             record_substantive_turn(st.ledger, disclosure_depth=3)
             st.last_hook = None
+            # 危机轮之后情绪惯性拉满：哪怕下一轮对方说"没事"，也不许开玩笑
+            st.last_user_valence = -0.9
             st.core.last_seen = now.isoformat()
             self.store.save(st)
             return
