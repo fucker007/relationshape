@@ -5,3 +5,4 @@ __pycache__/
 runtime/
 dist/
 build/
+eval/data/
