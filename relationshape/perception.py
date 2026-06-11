@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import re
+from typing import Callable, Optional
 
 from relationshape import zh
 from relationshape.types import (
@@ -63,8 +64,25 @@ _EMO_LEXICON: list[tuple[re.Pattern, str, float, float]] = [
 _NEG_EVENT_RE = re.compile(r"(批评|骂|凶|催|改需求|加班|放鸽子|抢|欺负|嘲笑|针对|误会|吵架|罚|拖堂|作业(好多|写不完))")
 
 
+# 可插拔情绪后端：模型分类器从这里接入（设计契约：感知实现可整体替换）。
+# 只影响情绪读数；对角色的二人称模式路由（攻击/夸/安抚/拒绝）始终走规则，
+# 因为那些模式在目标域里高度规整，且是自尊/安全行为的触发器，不交给概率模型。
+EmotionBackend = Callable[[str], Optional[tuple[str, float, float, float]]]
+_emotion_backend: Optional[EmotionBackend] = None
+
+
+def set_emotion_backend(fn: Optional[EmotionBackend]) -> None:
+    """安装/卸载情绪分类后端。后端返回 None 时回落到内置词典。"""
+    global _emotion_backend
+    _emotion_backend = fn
+
+
 def _detect_emotion(text: str) -> tuple[str, float, float, float]:
     """返回 (label, valence, arousal, confidence)。"""
+    if _emotion_backend is not None:
+        out = _emotion_backend(text)
+        if out is not None:
+            return out
     for pat, label, val, aro in _EMO_LEXICON:
         if pat.search(text):
             return label, val, aro, 0.75
