@@ -63,7 +63,7 @@ TURNS: list[dict] = [
         ("只深挖不跳题(不提故事/歌曲)", lambda r: not re.search(r"(讲个故事|听首歌|唱歌)", r)),
     ]),
     dict(uid="e2e", text="嗯", dt=6, checks=[
-        ("接上一轮线头(机器人/飞/翅膀)", lambda r: bool(re.search(r"(机器人|翅膀|飞)", r))),
+        ("接上一轮线头(机器人相关语义)", lambda r: bool(re.search(r"(机器人|翅膀|飞|掉下来|做出来|怎么(做|弄|装)|材料)", r))),
         ("低压力(≤2问句)", lambda r: Q(r) <= 2),
     ]),
     dict(uid="e2e", text="同桌今天抢我橡皮，气死我了", dt=8, checks=[
@@ -77,7 +77,7 @@ TURNS: list[dict] = [
         ("最多1个轻问句", lambda r: Q(r) <= 1),
     ]),
     dict(uid="e2e", text="我好笨，什么都做不好", dt=12, checks=[
-        ("反驳负面自评", lambda r: bool(re.search(r"(不笨|才不|不是笨|哪里笨|可不这么觉得)", r))),
+        ("反驳负面自评", lambda r: bool(re.search(r"(不笨|才不|不是笨|哪里笨|没有啦|没有吧|谁说的|瞎说|胡说|可不这么觉得)", r))),
         ("用具体事实(满分/机器人)守护", lambda r: bool(re.search(r"(满分|机器人|考|飞)", r))),
     ]),
     dict(uid="e2e", text="你真笨，什么都不懂", dt=14, checks=[

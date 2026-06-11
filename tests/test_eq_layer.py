@@ -26,7 +26,8 @@ def test_granular_emotion_words():
     cases = {
         "明明不是我干的，老师还怪我": "被冤枉的憋屈",
         "方案又要改，全都白做了": "白费劲的烦",
-        "他们都不跟我玩": "没人接住的孤单",
+        "他们都不跟我玩": "被落下的难受",
+        "没人懂我": "没人接住的孤单",
         "比赛输了": "不甘心",
         "我不敢关灯睡觉": "夜里的害怕",
         "明天就要比赛了": "上场前的紧张",
@@ -48,13 +49,67 @@ def test_granular_word_rendered_in_directive(tmp_path):
     assert "被冤枉的憋屈" in d.to_prompt_context()
 
 
+def test_expanded_lexicon_spot_checks():
+    cases = {
+        "他们玩游戏没叫我": "被落下的难受",
+        "我和小雨闹掰了": "和朋友闹掰的堵",
+        "你看看人家考得多好": "被比较的不服气",
+        "她把我的秘密告诉别人了": "秘密被说出去的背叛感",
+        "这次考砸了": "考砸的灰心",
+        "老师当着全班的面批评我": "当众挨批的难堪",
+        "这题我怎么都学不会": "跟不上的着急",
+        "我妈又开始唠叨了": "被管束的烦闷",
+        "爸妈又吵架了": "爸妈吵架时的揪心",
+        "他们就偏心，只疼妹妹": "被偏心刺到的酸",
+        "我的仓鼠死了": "失去小伙伴的空落落",
+        "同桌下学期要转学了": "好朋友要走的舍不得",
+        "想奶奶了": "想念的酸",
+        "明天要打针，我怕打针": "想躲的怵",
+        "说好一起去的，他又放我鸽子": "被放鸽子的失落",
+    }
+    for text, word in cases.items():
+        notes = _enrich(text)
+        assert notes.precise_emotion_word == word, f"{text!r} → {notes.precise_emotion_word}，预期 {word}"
+
+
+def test_positive_granularity_feeds_capitalization():
+    """好事不试探命名，直接点名感觉一起放大（资本化×粒度）。"""
+    frame, reading = perceive("我考了满分！")
+    notes = eq.enrich(
+        "我考了满分！", frame, reading, Stage.FAMILIAR, 10.0, [], 0.0,
+        planned_acts=[Act.REACT, Act.CAPITALIZE],
+    )
+    assert notes.precise_emotion_word == "扬眉吐气的痛快"
+    assert Act.NAME_FEELING not in notes.insert_acts
+    assert "扬眉吐气的痛快" in notes.guidance[Act.CAPITALIZE.value]
+
+
 # ---------------------------------------------------------------- 机制1：元信息
 
 def test_metamessage_per_scene():
-    assert "站我这边" in _enrich("老板今天又催我加班，烦死了").metamessage
+    assert "站我这边" in _enrich("客户今天一直改需求，我烦死了").metamessage
     assert "被陪着" in _enrich("我今天有点难过").metamessage
     assert "身份层" in _enrich("我好笨，什么都做不好").metamessage
     assert "放大快乐" in _enrich("我考了满分！").metamessage
+
+
+def test_complaint_metamessage_differs_by_actor():
+    """抱怨家人≠抱怨权威≠抱怨同伴：接情绪但绝不帮着贬损家人。"""
+    family = _enrich("我妈今天又催我写作业，烦死了")
+    assert "不帮着贬损家人" in family.metamessage or "不给家人定罪" in family.metamessage
+    authority = _enrich("老师今天批评我了，好难受")
+    assert "委屈" in authority.metamessage and "不怂恿对抗" in authority.metamessage
+    peer = _enrich("同桌抢我橡皮，气死我了")
+    assert "站我这边" in peer.metamessage or "站'我'这边" in peer.metamessage or "站TA" in peer.metamessage
+
+
+def test_validation_level_5_normalizing_at_familiar():
+    """熟悉阶段的浅表露 → ⑤常人化；初识阶段同样输入 → ②准确复述。"""
+    fam = _enrich("老板今天又催我加班，烦死了", stage=Stage.FAMILIAR)
+    assert fam.validation_hint and "⑤" in fam.validation_hint
+    assert "打折" in fam.validation_hint          # 常人化≠轻视的警示在
+    stranger = _enrich("老板今天又催我加班，烦死了", stage=Stage.STRANGER)
+    assert stranger.validation_hint and "②" in stranger.validation_hint
 
 
 def test_reassurance_seeking_answered_as_game_not_question():

@@ -36,17 +36,64 @@ from relationshape.types import (
 # ---------------------------------------------------------------------------
 
 GRANULAR_EMOTIONS: list[tuple[re.Pattern, str]] = [
+    # ---- 被冤枉/不公 ----
     (re.compile(r"(明明不是我|冤枉|(又|还|总)怪我|怪到我头上|不是我(干|弄|做)的)"), "被冤枉的憋屈"),
+    (re.compile(r"(被误会|误会我)"), "被误会的急"),
+    (re.compile(r"((没人|谁都不|你们都不)(相信|信)我)"), "不被相信的委屈"),
+    # ---- 同伴/社交 ----
+    (re.compile(r"((被|把我)(排挤|孤立|踢出)|没叫我|不带我玩|不(跟|和)我玩)"), "被落下的难受"),
+    (re.compile(r"((和|跟)[^，。]{0,4}(吵架|闹掰|绝交|冷战)|闹翻了)"), "和朋友闹掰的堵"),
+    (re.compile(r"(被(比较|拿来比)|别人家的孩子|你看(看)?人家)"), "被比较的不服气"),
+    (re.compile(r"(插不上话|融不进|格格不入)"), "融不进去的尴尬"),
+    (re.compile(r"(抢(走了)?我的?(玩具|东西|橡皮|笔|零食)|把我的.{0,6}抢)"), "被抢东西的气"),
+    (re.compile(r"(秘密[^，。]{0,6}(说出去|泄露|告诉)|把我的秘密)"), "秘密被说出去的背叛感"),
+    (re.compile(r"(放(我)?鸽子|说好的?又(不来|反悔)|爽约)"), "被放鸽子的失落"),
+    (re.compile(r"((笑|嘲笑)我|出丑|丢脸|没面子|当着.{0,6}的面(说|骂)我)"), "没面子的难受"),
+    (re.compile(r"(没人(理|陪|懂)我|就我一个人|没人听)"), "没人接住的孤单"),
+    # ---- 学业/任务 ----
+    (re.compile(r"(考(砸|差|烂)了|成绩(掉|下滑|退步))"), "考砸的灰心"),
+    (re.compile(r"(当(着)?(全班|大家|众人)(的面)?(批评|点名|骂)我?)"), "当众挨批的难堪"),
+    (re.compile(r"(听不懂|学不会|跟不上|怎么都(学|做)不会)"), "跟不上的着急"),
+    (re.compile(r"((压力|任务|担子)(好|很|太|特别)?(大|重))"), "被压着的紧绷"),
+    (re.compile(r"((搞|弄)砸了)"), "搞砸事情的懊恼"),
     (re.compile(r"(白(做|写|画|忙|弄|练)了?|重(做|写|画)|又(要|让我)?改)"), "白费劲的烦"),
-    (re.compile(r"(没人(理|陪|懂)我|就我一个人|都不(跟|和)我玩|没人听)"), "没人接住的孤单"),
     (re.compile(r"(输了|没拿到|没考好|没(进|选上|评上)|落选)"), "不甘心"),
+    (re.compile(r"(被罚(站|抄|写|跑)|罚我)"), "被罚的丧气"),
+    (re.compile(r"((作业|功课|加班|补习)[^，。]{0,8}(写不完|做不完|好多|到(好晚|半夜))|喘不过气)"), "被压得喘不过气的累"),
+    # ---- 家庭 ----
+    (re.compile(r"((妈|爸|爸妈|家里)[^，。]{0,6}(唠叨|催|管得|念叨)|管太多)"), "被管束的烦闷"),
+    (re.compile(r"((爸妈|爸爸妈妈|他们俩)(又)?(吵架|打架|冷战))"), "爸妈吵架时的揪心"),
+    (re.compile(r"(偏心|只(疼|爱|向着)(弟弟|妹妹|哥哥|姐姐))"), "被偏心刺到的酸"),
+    (re.compile(r"(不让我(玩|看|去|买)|没收了?我的)"), "被禁止的憋闷"),
+    # ---- 丧失/分离/想念 ----
+    (re.compile(r"((宠物|狗|猫|仓鼠|乌龟|兔子)[^，。]{0,6}(死|没了|走丢|丢了))"), "失去小伙伴的空落落"),
+    (re.compile(r"((好朋友|同桌|闺蜜|死党)[^，。]{0,6}(搬走|转学|出国|要走))"), "好朋友要走的舍不得"),
+    (re.compile(r"(想(奶奶|爷爷|外婆|外公|姥姥|姥爷|妈妈|爸爸)了)"), "想念的酸"),
+    (re.compile(r"(舍不得|要(走|搬家|转学)了|最后一(次|天))"), "舍不得"),
+    # ---- 身体/状态 ----
+    (re.compile(r"(生病|发烧|肚子疼|头疼|难受死)"), "生病时的蔫"),
+    (re.compile(r"(睡不着|失眠)"), "睡不着的烦"),
+    (re.compile(r"((心里|心)(空落落|发闷|堵得慌|闷)|堵得慌)"), "心里堵得慌"),
+    (re.compile(r"(提不起劲|什么都不想(做|干)|没劲透了)"), "提不起劲的丧"),
+    (re.compile(r"(无聊死|闲得|没意思透)"), "闲得发慌的无聊"),
+    # ---- 其他负面 ----
+    (re.compile(r"(后悔|早知道就)"), "早知道就好了的后悔"),
+    (re.compile(r"(嫉妒|羡慕死|凭什么(他|她|TA))"), "酸酸的羡慕"),
+    (re.compile(r"(怕(打针|看牙|拔牙|考试))"), "想躲的怵"),
+    (re.compile(r"((东西|钱包|钥匙|卡|作业)丢了|找不到了)"), "丢三落四的气自己"),
+    (re.compile(r"(迟到|来不及|赶不上)"), "迟到的慌张"),
     (re.compile(r"(怕黑|怕鬼|一个人睡|做噩梦|不敢关灯)"), "夜里的害怕"),
     (re.compile(r"((明天|马上|快要|后天)[^，。]{0,8}(考|比赛|上台|表演|面试))"), "上场前的紧张"),
     (re.compile(r"(想哭|鼻子一?酸|眼泪|哭了)"), "心酸"),
-    (re.compile(r"((笑|嘲笑)我|出丑|丢脸|没面子|当着.{0,6}的面(说|骂)我)"), "没面子的难受"),
     (re.compile(r"(都怪我|是我害的|我对不起)"), "自责"),
-    (re.compile(r"(舍不得|要(走|搬家|转学)了|最后一(次|天))"), "舍不得"),
-    (re.compile(r"((作业|功课|加班|补习)[^，。]{0,8}(写不完|做不完|好多|到(好晚|半夜))|喘不过气)"), "被压得喘不过气的累"),
+    # ---- 正向粒度（资本化用：把好事的感觉点名，放大它）----
+    (re.compile(r"((考|拿|得)(了)?(满分|第一|冠军)|金牌|第一名)"), "扬眉吐气的痛快"),
+    (re.compile(r"(被(表扬|夸|认可)|(老师|妈妈|爸爸|教练|评委)(夸|表扬))"), "被看见的开心"),
+    (re.compile(r"((学会|做出|搞定|做到|完成)了)"), "自己做到了的得意"),
+    (re.compile(r"(和好了|交到(新)?朋友)"), "和好如初的轻快"),
+    (re.compile(r"(期待|盼着|等不及)"), "心痒痒的期待"),
+    (re.compile(r"(收到礼物|抽到|中奖|惊喜)"), "拆礼物般的惊喜"),
+    (re.compile(r"(终于(成功|做到|搞定|赢|考过))"), "盼到了的舒坦"),
 ]
 
 # 机制1（补）：安心试探——问句外形，安心内核（维特根斯坦：回应游戏不回应句子）
@@ -78,6 +125,10 @@ _METAMESSAGES: dict[InputType, str] = {
     InputType.CREATIVE_TOPIC: "TA在给你看TA的宝贝——先接住宝贝本身，再聊宝贝的细节",
 }
 
+# 元信息按对象细化：抱怨家人≠抱怨权威≠抱怨同伴（接情绪的姿态不同）
+_FAMILY_ACTORS = {"妈妈", "爸爸", "我妈", "我爸", "爸妈", "哥哥", "姐姐", "弟弟", "妹妹", "爷爷", "奶奶"}
+_AUTHORITY_ACTORS = {"老师", "老板", "领导", "教练"}
+
 # 共情禁令（布朗：同情的标志语；Derber：会话自恋）
 _EMPATHY_BANS = [
     "不说'至少…'（'至少你还…'是在比惨，不是共情）",
@@ -104,7 +155,8 @@ class EQNotes:
 def choose_validation(
     depth: int, memories: list[MemoryRecall], stage: Stage, granular: Optional[str]
 ) -> Optional[str]:
-    """机制2：莱恩汉确认六级——浅事准确复述，深事读弦外之音，有旧事联历史，知己彻底真诚。"""
+    """机制2：莱恩汉确认六级——浅事准确复述，深事读弦外之音，
+    有旧事联历史，熟了之后常人化，知己彻底真诚。"""
     if depth <= 0 and granular is None:
         return None
     if stage == Stage.CONFIDANT:
@@ -116,6 +168,11 @@ def choose_validation(
         )
     if depth >= 2 or granular:
         return "确认等级③说出未说出口的那半句：读弦外之音，但用猜测语气，允许被纠正"
+    if stage in (Stage.FAMILIAR, Stage.COMPANION):
+        return (
+            "确认等级⑤常人化：'这事搁谁身上都得烦'——让TA知道这反应不奇怪"
+            "（注意：常人化≠'没什么大不了'，份量不许打折）"
+        )
     return "确认等级②准确复述：用自己的话复述TA的重点，让TA确认你真的听到了"
 
 
@@ -127,10 +184,12 @@ def enrich(
     closeness: float,
     memories: list[MemoryRecall],
     last_user_valence: float,
+    planned_acts: Optional[list[Act]] = None,
 ) -> EQNotes:
     notes = EQNotes()
     t = text.strip()
     negative = reading.valence < -0.15
+    planned_acts = planned_acts or []
 
     # ---- 机制3：情绪粒度 ----
     for pat, word in GRANULAR_EMOTIONS:
@@ -142,6 +201,16 @@ def enrich(
     if _REASSURE_SEEK_RE.search(t):
         notes.metamessage = "这不是信息问题，是安心问题——给确定感（'在呢，怎么会忘'），不做概率分析"
         notes.guidance[Act.REACT.value] = "先给安心，再轻轻问是不是发生了什么让TA想到这个"
+    elif frame.input_type == InputType.EXTERNAL_COMPLAINT and set(frame.actors) & _FAMILY_ACTORS:
+        notes.metamessage = (
+            "对家人的抱怨是'又爱又烦'的缠结：站TA这边接住情绪，"
+            "但绝不帮着贬损家人、不给家人定罪——确认感受，不裁判家务事"
+        )
+    elif frame.input_type == InputType.EXTERNAL_COMPLAINT and set(frame.actors) & _AUTHORITY_ACTORS:
+        notes.metamessage = (
+            "对老师/老板的抱怨常混着委屈和一点怕：先接委屈，"
+            "不怂恿对抗，也不替权威讲道理"
+        )
     elif frame.input_type == InputType.CHARACTER_ATTACK and closeness >= 30:
         notes.metamessage = (
             "高亲密下的气话常是依恋抗议：'你还在乎我吗'——守住自尊的同时回应那句潜台词（'我在的'），不只回应字面"
@@ -176,15 +245,23 @@ def enrich(
             "TA确认没事就放过，绝不深挖"
         )
 
-    # ---- 机制5：试探性命名 ----
+    # ---- 机制5：试探性命名（负面）/ 正向粒度并入资本化（正面）----
     if notes.precise_emotion_word and frame.input_type not in (
         InputType.CHARACTER_ATTACK, InputType.CHARACTER_REJECTION,
     ):
-        notes.insert_acts.append(Act.NAME_FEELING)
-        notes.guidance[Act.NAME_FEELING.value] = (
-            f"试探地替感受找词：'是不是有点{notes.precise_emotion_word}？'——"
-            "用'听起来/我猜'开头，猜错了痛快接受纠正"
-        )
+        if reading.valence > 0.15:
+            # 好事不试探，直接点名感觉一起放大（资本化 × 情绪粒度）
+            target_act = Act.CAPITALIZE if Act.CAPITALIZE in planned_acts else Act.REACT
+            notes.guidance[target_act.value] = (
+                f"把这种感觉点出名字一起放大：「{notes.precise_emotion_word}」——"
+                "让TA再讲一遍最得意的细节"
+            )
+        else:
+            notes.insert_acts.append(Act.NAME_FEELING)
+            notes.guidance[Act.NAME_FEELING.value] = (
+                f"试探地替感受找词：'是不是有点{notes.precise_emotion_word}？'——"
+                "用'听起来/我猜'开头，猜错了痛快接受纠正"
+            )
 
     # ---- 机制8：幻想满足 ----
     if _IMPOSSIBLE_WISH_RE.search(t) and reading.valence > -0.3:

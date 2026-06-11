@@ -170,7 +170,7 @@ class CompanionEngine:
         eq_notes = eq_mod.enrich(
             text=text, frame=frame, reading=reading, stage=st.core.stage,
             closeness=st.ledger.closeness, memories=memories,
-            last_user_valence=st.last_user_valence,
+            last_user_valence=st.last_user_valence, planned_acts=acts,
         )
         acts = eq_notes.lead_acts + acts
         if eq_notes.insert_acts:
