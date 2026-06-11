@@ -101,6 +101,10 @@ class Act(str, enum.Enum):
     ACKNOWLEDGE_TRUST = "acknowledge_trust"  # 郑重接住"说出来"这个行为
     REUNION_WARMTH = "reunion_warmth"    # 久别重逢的暖场（不带指责）
     HONEST_EXPLAIN = "honest_explain"    # 诚实解释（设备问题等），不甩锅不客服
+    PERCEPTION_CHECK = "perception_check"  # 知觉检核："没事"不当真也不戳穿
+    NAME_FEELING = "name_feeling"        # 试探性地替感受找词（可被纠正）
+    FANTASY_GRANT = "fantasy_grant"      # 现实给不了的，用想象给足
+    CONCEDE = "concede"                  # 被说服时痛快认，可见地被改变
 
 
 class HumorStyle(str, enum.Enum):
@@ -258,6 +262,11 @@ class TurnDirective:
 
     style: StyleParams = field(default_factory=StyleParams)
     persona_notes: list[str] = field(default_factory=list)   # 与该用户磨合出来的人格演进
+
+    # 高情商层（eq.py）：元信息、确认等级、情绪粒度词
+    metamessage: Optional[str] = None
+    validation_hint: Optional[str] = None
+    precise_emotion_word: Optional[str] = None
 
     def to_prompt_context(self) -> str:
         from relationshape.prompting import render_prompt_context

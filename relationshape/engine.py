@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
+from relationshape import eq as eq_mod
 from relationshape import safety as safety_mod
 from relationshape import zh
 from relationshape.acts import plan_acts
@@ -165,6 +166,28 @@ class CompanionEngine:
             if f not in forbidden:
                 forbidden.append(f)
 
+        # ---- 高情商层（语言艺术收敛，见 docs/EQ_CANON.md）----
+        eq_notes = eq_mod.enrich(
+            text=text, frame=frame, reading=reading, stage=st.core.stage,
+            closeness=st.ledger.closeness, memories=memories,
+            last_user_valence=st.last_user_valence,
+        )
+        acts = eq_notes.lead_acts + acts
+        if eq_notes.insert_acts:
+            pos = min(1, len(acts))
+            acts[pos:pos] = eq_notes.insert_acts
+        acts.extend(eq_notes.tail_acts)
+        _seen: set = set()
+        acts = [a for a in acts if not (a in _seen or _seen.add(a))]
+        for k, v in eq_notes.guidance.items():
+            guide[k] = v if k not in guide else f"{v}；{guide[k]}"
+        for c in eq_notes.constraints:
+            if c not in constraints:
+                constraints.append(c)
+        for f in eq_notes.forbidden:
+            if f not in forbidden:
+                forbidden.append(f)
+
         # ---- 幽默 ----
         humor = plan_humor(
             frame, reading, st.mood, st.core.stage, policy, st.adaptation,
@@ -212,6 +235,9 @@ class CompanionEngine:
         directive.milestone = f"今天是你们认识第{milestone}天" if milestone else None
         directive.style = style
         directive.persona_notes = st.adaptation.persona_notes()
+        directive.metamessage = eq_notes.metamessage
+        directive.validation_hint = eq_notes.validation_hint
+        directive.precise_emotion_word = eq_notes.precise_emotion_word
 
         # 承诺只有真被指示提起时才计一次"已提醒"（共情轮不算，避免闲聊几轮就误判失约）
         promise_surfaced = bool(due) and frame.input_type not in (

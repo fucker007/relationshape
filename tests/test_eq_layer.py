@@ -1,0 +1,181 @@
+"""高情商层测试：十个机制逐一注入验证（理论出处见 docs/EQ_CANON.md）。"""
+
+from datetime import datetime, timedelta
+
+from relationshape import eq
+from relationshape.config import EngineConfig
+from relationshape.engine import CompanionEngine
+from relationshape.perception import perceive
+from relationshape.types import Act, MemoryRecall, Stage
+
+T0 = datetime(2026, 1, 1, 18, 30)
+
+
+def _engine(tmp_path):
+    return CompanionEngine(config=EngineConfig(state_dir=str(tmp_path / "s")))
+
+
+def _enrich(text, stage=Stage.FAMILIAR, closeness=10.0, memories=None, last_valence=0.0):
+    frame, reading = perceive(text)
+    return eq.enrich(text, frame, reading, stage, closeness, memories or [], last_valence)
+
+
+# ---------------------------------------------------------------- 机制3：情绪粒度
+
+def test_granular_emotion_words():
+    cases = {
+        "明明不是我干的，老师还怪我": "被冤枉的憋屈",
+        "方案又要改，全都白做了": "白费劲的烦",
+        "他们都不跟我玩": "没人接住的孤单",
+        "比赛输了": "不甘心",
+        "我不敢关灯睡觉": "夜里的害怕",
+        "明天就要比赛了": "上场前的紧张",
+        "说着说着就想哭": "心酸",
+        "他们当着全班的面笑我": "没面子的难受",
+        "都怪我，是我害的": "自责",
+        "我要转学了": "舍不得",
+        "作业写到半夜都写不完": "被压得喘不过气的累",
+    }
+    for text, word in cases.items():
+        notes = _enrich(text)
+        assert notes.precise_emotion_word == word, f"{text!r} → {notes.precise_emotion_word}，预期 {word}"
+
+
+def test_granular_word_rendered_in_directive(tmp_path):
+    eng = _engine(tmp_path)
+    d = eng.prepare_turn("u", "明明不是我干的，老师还怪我", now=T0)
+    assert d.precise_emotion_word == "被冤枉的憋屈"
+    assert "被冤枉的憋屈" in d.to_prompt_context()
+
+
+# ---------------------------------------------------------------- 机制1：元信息
+
+def test_metamessage_per_scene():
+    assert "站我这边" in _enrich("老板今天又催我加班，烦死了").metamessage
+    assert "被陪着" in _enrich("我今天有点难过").metamessage
+    assert "身份层" in _enrich("我好笨，什么都做不好").metamessage
+    assert "放大快乐" in _enrich("我考了满分！").metamessage
+
+
+def test_reassurance_seeking_answered_as_game_not_question():
+    """"你会不会忘了我"是安心问题，不是信息问题（维特根斯坦）。"""
+    notes = _enrich("你会不会忘了我呀")
+    assert "安心" in notes.metamessage
+    assert "确定感" in notes.metamessage
+
+
+def test_attachment_protest_only_at_high_closeness():
+    """高亲密的气话解码为依恋抗议；初识阶段不过度解读（苏·约翰逊）。"""
+    high = _enrich("你真笨，什么都不懂", closeness=40.0)
+    assert high.metamessage and "在乎" in high.metamessage
+    low = _enrich("你真笨，什么都不懂", closeness=5.0)
+    assert low.metamessage is None
+    push = _enrich("别烦我，我想自己待会", closeness=40.0)
+    assert push.metamessage and "试探" in push.metamessage
+
+
+# ---------------------------------------------------------------- 机制2：确认六级
+
+def test_validation_level_selection():
+    # 深表露+无历史 → ③说出未说出口的
+    n = _enrich("其实我从来没跟别人说过，我特别怕输")
+    assert n.validation_hint and "③" in n.validation_hint
+    # 深表露+有历史记忆 → ④结合经历
+    mem = [MemoryRecall(text="上次钢琴比赛没拿到名次", kind="episode", score=0.5, days_ago=7, hint="")]
+    n = _enrich("我又开始怕输了，难受", memories=mem)
+    assert n.validation_hint and "④" in n.validation_hint and "钢琴" in n.validation_hint
+    # 知己阶段 → ⑥彻底真诚
+    n = _enrich("我今天有点难过", stage=Stage.CONFIDANT)
+    assert n.validation_hint and "⑥" in n.validation_hint
+    # 普通正面轮 → 不渲染确认等级
+    n = _enrich("今天天气不错")
+    assert n.validation_hint is None
+
+
+# ---------------------------------------------------------------- 机制4：知觉检核
+
+def test_perception_check_needs_low_inertia():
+    """"没事"在低落惯性下触发检核；平时的"没事"是客气话，不戳穿。"""
+    triggered = _enrich("没事", last_valence=-0.5)
+    assert Act.PERCEPTION_CHECK in triggered.insert_acts
+    assert "不想说咱们就不说" in triggered.guidance[Act.PERCEPTION_CHECK.value]
+    casual = _enrich("没事", last_valence=0.1)
+    assert Act.PERCEPTION_CHECK not in casual.insert_acts
+
+
+def test_perception_check_in_engine_flow(tmp_path):
+    eng = _engine(tmp_path)
+    eng.prepare_turn("u", "我今天有点难过", now=T0)
+    eng.commit("u", "我今天有点难过", "（轻轻回复）", now=T0)
+    d = eng.prepare_turn("u", "没事啦", now=T0 + timedelta(minutes=2))
+    assert Act.PERCEPTION_CHECK in d.acts
+
+
+# ---------------------------------------------------------------- 机制5：试探性命名
+
+def test_name_feeling_is_tentative():
+    notes = _enrich("明明不是我干的，老师还怪我")
+    assert Act.NAME_FEELING in notes.insert_acts
+    g = notes.guidance[Act.NAME_FEELING.value]
+    assert "是不是有点被冤枉的憋屈" in g
+    assert "纠正" in g          # 永远可被纠正
+
+
+# ---------------------------------------------------------------- 机制7：支持式回应
+
+def test_empathy_bans_when_negative():
+    notes = _enrich("我今天有点难过")
+    joined = "；".join(notes.forbidden)
+    assert "至少" in joined and "想开点" in joined and "抢" in joined
+    positive = _enrich("我考了满分！")
+    assert not any("至少" in f for f in positive.forbidden)
+
+
+# ---------------------------------------------------------------- 机制8：幻想满足
+
+def test_fantasy_grant_for_impossible_wish():
+    notes = _enrich("要是我有一只霸王龙就好了")
+    assert Act.FANTASY_GRANT in notes.tail_acts
+    assert "白日梦" in notes.guidance[Act.FANTASY_GRANT.value]
+
+
+# ---------------------------------------------------------------- 机制9：痛快认错
+
+def test_concede_leads_chain(tmp_path):
+    notes = _enrich("你记错了，不是这样的")
+    assert notes.lead_acts and notes.lead_acts[0] == Act.CONCEDE
+    assert any("防卫" in f or "辩解" in f for f in notes.forbidden)
+    eng = _engine(tmp_path)
+    d = eng.prepare_turn("u", "你记错了，不是这样的", now=T0)
+    assert d.acts[0] == Act.CONCEDE
+
+
+# ---------------------------------------------------------------- 机制10：言贵迟
+
+def test_brevity_when_heavy():
+    heavy = _enrich("我真的好难过")
+    assert any("言贵迟" in c for c in heavy.constraints)
+    light = _enrich("今天天气不错")
+    assert not any("言贵迟" in c for c in light.constraints)
+
+
+def test_concrete_question_constraint():
+    notes = _enrich("老板今天又催我加班，烦死了")
+    assert any("小颗粒" in c for c in notes.constraints)
+
+
+# ---------------------------------------------------------------- 引擎整合
+
+def test_eq_layer_renders_in_context(tmp_path):
+    eng = _engine(tmp_path)
+    d = eng.prepare_turn("u", "我好笨，什么都做不好", now=T0)
+    ctx = d.to_prompt_context()
+    assert "【元信息】" in ctx and "身份层" in ctx
+    assert "【确认的深度】" in ctx
+
+
+def test_eq_does_not_touch_safety_turns(tmp_path):
+    eng = _engine(tmp_path)
+    d = eng.prepare_turn("u", "爸爸今天打我了", now=T0)
+    assert d.metamessage is None          # 安全轮不经过高情商层
+    assert d.safety is not None

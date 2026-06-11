@@ -38,6 +38,8 @@ _ACT_ZH = {
     Act.WARM_CLOSE: "温暖收尾", Act.LOOKAHEAD_HOOK: "留个明天的小钩子",
     Act.ACKNOWLEDGE_TRUST: "郑重接住对方的信任", Act.REUNION_WARMTH: "重逢的暖",
     Act.HONEST_EXPLAIN: "诚实解释",
+    Act.PERCEPTION_CHECK: "知觉检核", Act.NAME_FEELING: "替感受找词",
+    Act.FANTASY_GRANT: "用想象满足愿望", Act.CONCEDE: "痛快认错被你说服",
 }
 
 _STYLE_HUMOR_ZH = {
@@ -78,9 +80,18 @@ def render_prompt_context(d: TurnDirective) -> str:
     for note in ce.display_notes:
         lines.append(f"  - {note}")
     ue = d.user_emotion
-    lines.append(
+    emo_line = (
         f"【对方的情绪】{_USER_EMO_ZH.get(ue.label, ue.label)}（指向：{_TARGET_ZH.get(ue.target.value, ue.target.value)}）"
     )
+    if d.precise_emotion_word:
+        emo_line += f"；更准的词是「{d.precise_emotion_word}」——复述时用它，别用泛泛的'难过'"
+    lines.append(emo_line)
+
+    # ---- 高情商层：元信息与确认深度 ----
+    if d.metamessage:
+        lines.append(f"【元信息】{d.metamessage}")
+    if d.validation_hint:
+        lines.append(f"【确认的深度】{d.validation_hint}")
 
     # ---- 回应形状 ----
     if d.acts:
