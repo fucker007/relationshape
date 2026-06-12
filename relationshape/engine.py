@@ -240,6 +240,12 @@ class CompanionEngine:
         directive.precise_emotion_word = eq_notes.precise_emotion_word
         directive.spoken_emotion_word = eq_notes.spoken_emotion_word
 
+        # ---- 本体论身份层：每轮一行立场；身世轮注入全量设定与自述账本 ----
+        directive.identity_line = f"{self.identity.name}——{self.identity.ontology_stance}"
+        if frame.input_type == InputType.ONTOLOGY_QUESTION:
+            directive.self_canon = list(self.identity.self_canon)
+            directive.self_claims = list(st.adaptation.self_claims)
+
         # 承诺只有真被指示提起时才计一次"已提醒"（共情轮不算，避免闲聊几轮就误判失约）
         promise_surfaced = bool(due) and frame.input_type not in (
             InputType.SELF_DISTRESS, InputType.SELF_BLAME, InputType.CHARACTER_REJECTION,
@@ -320,6 +326,10 @@ class CompanionEngine:
                 )
             record_substantive_turn(st.ledger, frame.disclosure_depth)
         st.last_user_valence = reading.valence
+
+        # ---- 自述账本：身世轮后登记角色的自我表述（连续性管理）----
+        if frame.input_type == InputType.ONTOLOGY_QUESTION:
+            st.adaptation.add_self_claims(assistant_text)
 
         # ---- 裂痕与修复 ----
         if frame.input_type == InputType.CHARACTER_ATTACK:

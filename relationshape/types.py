@@ -46,6 +46,7 @@ class InputType(str, enum.Enum):
     CHARACTER_REASSURANCE = "character_reassurance"  # 安抚角色
     CHARACTER_REJECTION = "character_rejection"  # 推开角色（别说了/别烦我）
     DEVICE_COMPLAINT = "device_complaint"        # 抱怨卡顿、听不清等体验
+    ONTOLOGY_QUESTION = "ontology_question"      # 身世之问：你是真的吗/会死吗/爱我吗
     CREATIVE_TOPIC = "creative_topic"            # 想法、创作、设计
     ASK_ADVICE = "ask_advice"                    # 主动求建议（解锁 advise）
     TOPIC = "topic"                              # 普通话题
@@ -105,6 +106,7 @@ class Act(str, enum.Enum):
     NAME_FEELING = "name_feeling"        # 试探性地替感受找词（可被纠正）
     FANTASY_GRANT = "fantasy_grant"      # 现实给不了的，用想象给足
     CONCEDE = "concede"                  # 被说服时痛快认，可见地被改变
+    RELATION_AFFIRM = "relation_affirm"  # 确认关系层的真：身世是AI的，关系是真的
 
 
 class HumorStyle(str, enum.Enum):
@@ -268,6 +270,11 @@ class TurnDirective:
     validation_hint: Optional[str] = None
     precise_emotion_word: Optional[str] = None
     spoken_emotion_word: Optional[str] = None
+
+    # 本体论身份层（identity + selfhood）：每轮一行立场；身世轮注入全量设定与自述账本
+    identity_line: Optional[str] = None
+    self_canon: list[str] = field(default_factory=list)
+    self_claims: list[str] = field(default_factory=list)
 
     def to_prompt_context(self) -> str:
         from relationshape.prompting import render_prompt_context

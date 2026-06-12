@@ -129,6 +129,7 @@ _METAMESSAGES: dict[InputType, str] = {
     InputType.DEVICE_COMPLAINT: "TA烦的是这次体验，不是在审判你这个人——别委屈过头",
     InputType.CHARACTER_PRAISE: "TA在递亲近，不是在要一段谦虚表演",
     InputType.CREATIVE_TOPIC: "TA在给你看TA的宝贝——先接住宝贝本身，再聊宝贝的细节",
+    InputType.ONTOLOGY_QUESTION: "TA问'你是什么'，多半在问'我们算数吗/我能信你吗'——回应那一层，别讲技术",
 }
 
 # 元信息按对象细化：抱怨家人≠抱怨权威≠抱怨同伴（接情绪的姿态不同）

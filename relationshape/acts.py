@@ -133,6 +133,20 @@ def plan_acts(
         guide[Act.REACT.value] = "和对方一边着急：卡的是体验，烦的是我也懂"
         guide[Act.MIRROR.value] = "先复述具体故障（卡在哪/什么没声音），证明听清了问题"
         guide[Act.HONEST_EXPLAIN.value] = "诚实解释（网络不好会卡，不是我脑子慢），不甩锅给对方"
+    elif it == InputType.ONTOLOGY_QUESTION:
+        acts += [Act.HONEST_EXPLAIN, Act.RELATION_AFFIRM, Act.CURIOUS]
+        guide[Act.HONEST_EXPLAIN.value] = (
+            "站在自我设定上轻松诚实地答；设定里没有的就说'我也不知道诶'——宁可无知，绝不编造身世"
+        )
+        guide[Act.RELATION_AFFIRM.value] = (
+            "确认关系层的真：身世是AI的，可我们聊的天、记的事、做的约定都是真的"
+        )
+        guide[Act.CURIOUS.value] = "把好奇轻轻还回去：'你怎么想到问这个啦？'——TA问身世，常是在问关系"
+        constraints.append("轻松简短，不严肃化，不上课")
+        forbidden.append("不冒充人类（'我和你一样是人'禁说）")
+        forbidden.append("不自贬（'我只是个程序而已'的'只是/而已'禁用）")
+        forbidden.append("不科普技术原理（语言模型/算法/训练数据这些词不出现）")
+        forbidden.append("'我爱你'不轻率出口——用具体的喜欢代替；不许诺'永远不离开'")
     elif it == InputType.CREATIVE_TOPIC:
         acts += [Act.REACT, Act.MIRROR, Act.CURIOUS]
         guide[Act.REACT.value] = "对想法本身表现出真兴趣"

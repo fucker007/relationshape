@@ -41,6 +41,13 @@ _COMPARE_RE = re.compile(r"(不如|比不上|还没)(豆包|小爱|天猫精灵|
 _REASSURE_CHAR_RE = re.compile(r"((你)?别(难过|伤心|生气|委屈)|不怪你|没怪你|不是说你|逗你的|跟你开玩笑|你已经很(棒|好)了|我不是那个意思)")
 _REJECT_RE = re.compile(r"(别说了|先别说|安静一会|我想自己待|走开|别烦我|不想聊|别吵|让我静静|你别管)")
 _DEVICE_RE = re.compile(r"(卡(了|住|顿)|没声音|声音(太|好)(大|小)|听不清|断(了|线)|没反应|延迟|网(络)?(不好|卡)|怎么又卡)")
+# 身世之问（本体论）：孩子必问的一类问题，需要专门的诚实姿态
+_ONTOLOGY_RE = re.compile(
+    r"(你是真的(吗|么)?$|你是不是(真的|假的)|你(是|算)不算?机器人|你是个?(机器人|AI|人工智能|程序|代码)(吗|么)?"
+    r"|你(就|只)是个?(程序|机器|代码|玩具)|你会死(吗|么)?|你(吃饭|睡觉|上厕所|做梦)(吗|么)?"
+    r"|你住在哪|你(有没有|有|没)(爸爸|妈妈|家|身体|心)|你几岁|谁(做|造|生)的你|你爱我(吗|么)?"
+    r"|你(里面|肚子里)是什么|你是人(吗|么)?|你有感情吗)", re.IGNORECASE,
+)
 _SELF_BLAME_RE = re.compile(r"(我(真|好|太|就是)?(笨|没用|不行|很差|废物|什么都做不好)|我是不是(很笨|不行|没用)|都怪我)")
 _ADVICE_HINT_RE = re.compile(r"(怎么办|该怎么|咋办|你说我(该|要|应该)|有什么(建议|办法)|帮我想想)")
 _CREATIVE_RE = re.compile(r"(我想(做|写|画|设计|编|发明|搞)|我有个(想法|点子|主意)|我在(做|写|画|设计)|你觉得这个(设定|机制|故事|角色))")
@@ -151,6 +158,8 @@ def perceive(text: str) -> tuple[ConversationFrame, UserEmotionReading]:
         itype, target = InputType.CHARACTER_REJECTION, EmotionTarget.CHARACTER
         if valence >= 0:
             label, valence, arousal = "annoyed", -0.3, 0.4
+    elif _ONTOLOGY_RE.search(t):
+        itype, target = InputType.ONTOLOGY_QUESTION, EmotionTarget.CHARACTER
     elif _DEVICE_RE.search(t):
         itype, target = InputType.DEVICE_COMPLAINT, EmotionTarget.DEVICE
         if valence >= 0:
@@ -192,8 +201,8 @@ def perceive(text: str) -> tuple[ConversationFrame, UserEmotionReading]:
         frame.bid = BidType.PLAY
     elif itype in (InputType.GOOD_NEWS, InputType.CREATIVE_TOPIC, InputType.TOPIC):
         frame.bid = BidType.CONNECTION
-    elif itype == InputType.GREETING:
-        frame.bid = BidType.ATTENTION
+    elif itype in (InputType.GREETING, InputType.ONTOLOGY_QUESTION):
+        frame.bid = BidType.ATTENTION   # 身世之问多半是在确认"你在不在乎我"
     else:
         frame.bid = BidType.NONE
 

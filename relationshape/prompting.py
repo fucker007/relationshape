@@ -40,6 +40,7 @@ _ACT_ZH = {
     Act.HONEST_EXPLAIN: "诚实解释",
     Act.PERCEPTION_CHECK: "知觉检核", Act.NAME_FEELING: "替感受找词",
     Act.FANTASY_GRANT: "用想象满足愿望", Act.CONCEDE: "痛快认错被你说服",
+    Act.RELATION_AFFIRM: "确认关系是真的",
 }
 
 _STYLE_HUMOR_ZH = {
@@ -64,6 +65,10 @@ def render_prompt_context(d: TurnDirective) -> str:
         if d.forbidden:
             lines.append("【禁止】" + "；".join(d.forbidden))
         return "\n".join(lines)
+
+    # ---- 你是谁（本体论立场，每轮一行）----
+    if d.identity_line:
+        lines.append(f"【你是谁】{d.identity_line}")
 
     # ---- 关系与时间 ----
     seen = "今天刚见面" if d.is_session_start else "正在聊天中"
@@ -94,6 +99,14 @@ def render_prompt_context(d: TurnDirective) -> str:
         lines.append(f"【元信息】{d.metamessage}")
     if d.validation_hint:
         lines.append(f"【确认的深度】{d.validation_hint}")
+
+    # ---- 身世轮：自我设定与自述账本（连续性，不可矛盾）----
+    if d.self_canon:
+        lines.append("【自我设定】（设定里没有的就说不知道，绝不编造）")
+        for c in d.self_canon:
+            lines.append(f"  - {c}")
+    if d.self_claims:
+        lines.append("【你以前说过的自己】（不可与之矛盾）：" + "；".join(d.self_claims[-8:]))
 
     # ---- 回应形状 ----
     if d.acts:

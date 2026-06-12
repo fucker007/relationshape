@@ -54,6 +54,7 @@ class AdaptationState:
         self.liked_topics: dict[str, int] = {}
         self.inside_jokes: list[InsideJoke] = []
         self.lessons: list[str] = []               # 角色自我记忆：和这位用户磨合出的教训
+        self.self_claims: list[str] = []           # 自述账本：对TA说过的自我事实（防矛盾，Yes-and）
         self.pending_humor: dict | None = None     # 上一轮用的幽默，等下一轮看反应
 
     # ------------------------------------------------------------- 风格趋同
@@ -123,6 +124,22 @@ class AdaptationState:
         self.lessons.append(lesson)
         self.lessons = self.lessons[-10:]
 
+    def add_self_claims(self, assistant_text: str) -> list[str]:
+        """身世轮后登记角色的自我表述（连续性管理：之后不可矛盾）。"""
+        import re
+
+        new: list[str] = []
+        for m in re.finditer(
+            r"我(?:也)?(?:是|不是|没有|有|会|不会|喜欢|讨厌|怕|不怕|住在|记得|叫)[^，。！？!?\s]{1,10}",
+            assistant_text,
+        ):
+            claim = re.sub(r"[了的呢啊呀哦吧啦嘛~～]+$", "", m.group(0))
+            if claim and claim not in self.self_claims:
+                self.self_claims.append(claim)
+                new.append(claim)
+        self.self_claims = self.self_claims[-20:]
+        return new
+
     def culture_size(self) -> int:
         """关系文化的规模：内部梗 + 专属称呼。阶段晋升的条件之一。"""
         return len(self.inside_jokes) + (1 if self.address_form else 0)
@@ -158,6 +175,7 @@ class AdaptationState:
             "liked_topics": self.liked_topics,
             "inside_jokes": [j.to_dict() for j in self.inside_jokes],
             "lessons": self.lessons,
+            "self_claims": self.self_claims,
             "pending_humor": self.pending_humor,
         }
 
@@ -171,5 +189,6 @@ class AdaptationState:
         st.liked_topics = d.get("liked_topics", {})
         st.inside_jokes = [InsideJoke.from_dict(j) for j in d.get("inside_jokes", [])]
         st.lessons = d.get("lessons", [])
+        st.self_claims = d.get("self_claims", [])
         st.pending_humor = d.get("pending_humor")
         return st
