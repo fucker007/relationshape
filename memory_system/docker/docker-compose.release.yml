@@ -1,0 +1,54 @@
+## memory-allinone v1.0.0 release compose
+## 使用：
+##   1. cp .env.example .env  并填写 LLM_API_KEY 等
+##   2. docker load -i memory-allinone-v1.0.0.tar.gz
+##   3. docker compose -f docker-compose.release.yml --env-file .env up -d
+##
+## 端口（host network，直接绑宿主）：
+##   8010  - Memory API
+##   5434  - PostgreSQL（仅本机调试用，生产建议 firewall 屏蔽外网）
+##   6380  - Redis     （同上）
+##   8002  - Embedding 服务（容器内自用，外部一般不直连）
+
+version: '3.8'
+
+services:
+  memory-system:
+    image: memory-allinone:v1.0.0
+    container_name: memory-allinone
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      # ===== LLM（必填，同事自备 dashscope / 兼容 OpenAI 的 endpoint）=====
+      MEMORY_llm_provider:    "${LLM_PROVIDER:-qwen}"
+      MEMORY_qwen_api_url:    "${LLM_API_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"
+      MEMORY_qwen_model_name: "${LLM_MODEL:-qwen-plus}"
+      MEMORY_qwen_api_key:    "${LLM_API_KEY:?LLM_API_KEY required}"
+
+      # ===== 语言（zh / en）=====
+      MEMORY_LANG:            "${MEMORY_LANG:-zh}"
+
+      # ===== Embedding（默认走容器内置 bge-m3 服务，无需改）=====
+      MEMORY_embedding_service_url: "http://127.0.0.1:8002"
+
+      # ===== PG / Redis（默认连容器内置，端口与镜像内一致，勿改）=====
+      MEMORY_pg_dsn:    "postgresql://memory:memory@localhost:5434/memory"
+      MEMORY_redis_url: "redis://localhost:6379"
+      MEMORY_pg_pool_min: "20"
+      MEMORY_pg_pool_max: "100"
+
+    volumes:
+      # 数据持久化：升级镜像时不会丢
+      - pg_data:/var/lib/postgresql/data
+      - redis_data:/var/lib/redis
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -X POST http://127.0.0.1:8010/api/v1/memory/chat -H 'Content-Type: application/json' -d '{\"owner\":\"healthcheck\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}' >/dev/null || exit 1"]
+      interval: 60s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+volumes:
+  pg_data:
+  redis_data:

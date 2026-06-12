@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  memory-system:
+    build:
+      context: .
+      dockerfile: Dockerfile.allinone
+    network_mode: host
+    environment:
+      # LLM 配置 (连接宿主机的 LLM 服务)
+      MEMORY_llm_provider: qwen
+      MEMORY_qwen_api_url: http://127.0.0.1:9003/v1
+      MEMORY_qwen_model_name: Qwen3-Coder-30B-A3B-Instruct-AWQ
+      MEMORY_qwen_api_key: no-api-key-required
+      # Embedding 配置 (直接加载本地模型，无需外部服务)
+      # MEMORY_embedding_service_url: ""  # 留空 = 直接加载
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  pg_data:

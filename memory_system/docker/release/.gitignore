@@ -1,0 +1,9 @@
+# 大文件 / 本地敏感配置不入库
+*.tar
+*.tar.gz
+*.log
+.env
+
+# 本地数据目录（如果 compose 改成 bind mount）
+pg_data/
+redis_data/

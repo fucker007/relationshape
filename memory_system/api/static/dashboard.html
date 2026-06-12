@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🧠 Memory Viewer</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+  .sidebar-scrollbar::-webkit-scrollbar { width: 4px; }
+  .sidebar-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+  .sidebar-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+  .tab-active { border-bottom: 3px solid #3b82f6; color: #1d4ed8; font-weight: 600; }
+  .tab-inactive { border-bottom: 3px solid transparent; color: #64748b; }
+  .tab-inactive:hover { color: #334155; border-bottom-color: #e2e8f0; }
+  .timeline-line::before {
+    content: '';
+    position: absolute;
+    left: 11px; top: 24px; bottom: -16px;
+    width: 2px; background: #e2e8f0;
+  }
+  .chat-user { background: #3b82f6; color: white; border-radius: 18px 18px 4px 18px; }
+  .chat-assistant { background: #f1f5f9; color: #1e293b; border-radius: 18px 18px 18px 4px; }
+  .person-card:hover { background: #eff6ff; }
+  .person-card.selected { background: #dbeafe; border-left: 3px solid #3b82f6; }
+  .fade-in { animation: fadeIn 0.2s ease-in; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  .spinner { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .chip { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 9999px; font-size: 12px; font-weight: 500; margin: 2px; }
+  .importance-bar { height: 4px; border-radius: 2px; background: #e2e8f0; }
+  .importance-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, #3b82f6, #8b5cf6); }
+  .collapse-btn { cursor: pointer; user-select: none; }
+  .recall-panel { border-left: 3px solid #f59e0b; background: #fffbeb; }
+  .extraction-marker { background: #fef3c7; border: 1px solid #fbbf24; border-radius: 6px; }
+</style>
+</head>
+<body class="bg-gray-50 text-gray-900 min-h-screen">
+
+<!-- Header -->
+<header class="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-3 shadow-md" style="background:#0f172a; height:56px;">
+  <div class="flex items-center gap-3">
+    <span class="text-2xl">🧠</span>
+    <span class="text-white font-bold text-lg tracking-tight">Memory Viewer</span>
+  </div>
+  <div class="flex items-center gap-3" id="headerStats">
+    <span class="chip bg-blue-500 text-white" id="statPersons">-- 人</span>
+    <span class="chip bg-purple-500 text-white" id="statEvents">-- 事件</span>
+    <span class="chip bg-emerald-500 text-white" id="statSessions">-- Sessions</span>
+    <span class="chip bg-amber-500 text-white" id="statOwners">-- Owners</span>
+  </div>
+  <div class="flex items-center gap-2">
+    <label class="flex items-center gap-1 text-slate-300 text-sm cursor-pointer">
+      <input type="checkbox" id="autoRefreshToggle" class="accent-blue-400" checked>
+      <span>自动刷新</span>
+    </label>
+    <button onclick="App.loadStats()" class="text-slate-300 hover:text-white text-sm border border-slate-600 rounded px-2 py-1 transition">↺ 刷新</button>
+  </div>
+</header>
+
+<!-- Main Layout -->
+<div class="flex" style="margin-top:56px; height:calc(100vh - 56px);">
+
+  <!-- Sidebar -->
+  <aside class="flex-none bg-white border-r border-slate-200 flex flex-col" style="width:280px;">
+    <div class="p-3 border-b border-slate-100">
+      <input id="personSearch" type="text" placeholder="🔍 搜索人物..."
+             class="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300"
+             oninput="App.filterPersons(this.value)">
+      <select id="ownerFilter" class="mt-2 w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300"
+              onchange="App.loadPersons(this.value)">
+        <option value="">全部 Owner</option>
+      </select>
+    </div>
+    <div id="personList" class="flex-1 overflow-y-auto sidebar-scrollbar p-2">
+      <div class="text-center text-slate-400 text-sm py-8">
+        <div class="text-3xl mb-2">👥</div>
+        <div>加载中...</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Content -->
+  <main class="flex-1 flex flex-col overflow-hidden">
+    <!-- Tabs -->
+    <div class="bg-white border-b border-slate-200 px-6 flex gap-1" style="flex-shrink:0;">
+      <button id="tab-btn-profile" class="tab-active py-3 px-4 text-sm transition" onclick="App.switchTab('profile')">🧩 记忆画像</button>
+      <button id="tab-btn-timeline" class="tab-inactive py-3 px-4 text-sm transition" onclick="App.switchTab('timeline')">📅 事件时间线</button>
+      <button id="tab-btn-sessions" class="tab-inactive py-3 px-4 text-sm transition" onclick="App.switchTab('sessions')">💬 对话Session</button>
+      <button id="tab-btn-recall" class="tab-inactive py-3 px-4 text-sm transition" onclick="App.switchTab('recall')">🔍 召回测试</button>
+    </div>
+
+    <!-- Tab Content -->
+    <div class="flex-1 overflow-y-auto p-6">
+
+      <!-- Tab: Profile -->
+      <div id="tab-profile" class="fade-in">
+        <div id="profileEmpty" class="text-center py-20 text-slate-400">
+          <div class="text-5xl mb-3">👈</div>
+          <div class="text-lg font-medium">请从左侧选择一个人物</div>
+          <div class="text-sm mt-1">查看记忆画像详情</div>
+        </div>
+        <div id="profileContent" class="hidden">
+          <div class="mb-4 flex items-center gap-3">
+            <div class="w-12 h-12 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-xl font-bold" id="profileAvatar">?</div>
+            <div>
+              <div class="font-bold text-xl" id="profileName">-</div>
+              <div class="text-sm text-slate-500" id="profileMeta">-</div>
+            </div>
+          </div>
+
+          <!-- 2x2 attribute cards -->
+          <div class="grid grid-cols-2 gap-4 mb-6">
+            <div class="bg-white rounded-xl shadow-sm p-4 border border-slate-100">
+              <div class="font-semibold text-blue-700 mb-3 flex items-center gap-1">
+                <span>🪪</span><span>身份信息</span>
+              </div>
+              <div id="identityTags" class="flex flex-wrap gap-1"></div>
+              <div class="text-slate-400 text-xs mt-2 hidden" id="identityEmpty">暂无身份信息</div>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm p-4 border border-slate-100">
+              <div class="font-semibold text-emerald-700 mb-3 flex items-center gap-1">
+                <span>❤️</span><span>喜好</span>
+              </div>
+              <div id="preferencesTags" class="flex flex-wrap gap-1"></div>
+              <div class="text-slate-400 text-xs mt-2 hidden" id="preferencesEmpty">暂无喜好记录</div>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm p-4 border border-slate-100">
+              <div class="font-semibold text-amber-700 mb-3 flex items-center gap-1">
+                <span>🔄</span><span>行为习惯</span>
+              </div>
+              <div id="behaviorsTags" class="flex flex-wrap gap-1"></div>
+              <div class="text-slate-400 text-xs mt-2 hidden" id="behaviorsEmpty">暂无行为记录</div>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm p-4 border border-slate-100">
+              <div class="font-semibold text-rose-700 mb-3 flex items-center gap-1">
+                <span>🚫</span><span>当前关注</span>
+              </div>
+              <div id="focusTags" class="flex flex-wrap gap-1"></div>
+              <div class="text-slate-400 text-xs mt-2 hidden" id="focusEmpty">暂无关注记录</div>
+            </div>
+          </div>
+
+          <!-- Recent Events Table -->
+          <div class="bg-white rounded-xl shadow-sm border border-slate-100 mb-6">
+            <div class="px-5 py-3 border-b border-slate-100 font-semibold text-slate-700 flex items-center gap-2">
+              <span>📋</span><span>近期事件</span>
+              <span class="chip bg-slate-100 text-slate-600 text-xs" id="eventCountBadge">0</span>
+            </div>
+            <div class="text-center text-slate-400 text-sm py-6 hidden" id="eventsEmpty">暂无事件记录</div>
+            <div id="eventsTable" class="divide-y divide-slate-50"></div>
+          </div>
+
+          <!-- Relationships -->
+          <div class="bg-white rounded-xl shadow-sm border border-slate-100">
+            <div class="px-5 py-3 border-b border-slate-100 font-semibold text-slate-700 flex items-center gap-2">
+              <span>🔗</span><span>关系网络</span>
+            </div>
+            <div class="text-center text-slate-400 text-sm w-full py-4 hidden" id="relationsEmpty">暂无关系记录</div>
+            <div id="relationsList" class="p-4 flex flex-wrap gap-2"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Timeline -->
+      <div id="tab-timeline" class="hidden fade-in">
+        <div class="mb-4 flex items-center gap-3">
+          <span class="text-slate-600 text-sm font-medium">筛选类型:</span>
+          <div class="flex gap-2 flex-wrap" id="timelineFilters">
+            <button class="chip bg-blue-100 text-blue-700 cursor-pointer hover:bg-blue-200" onclick="App.filterTimeline('all')">全部</button>
+            <button class="chip bg-blue-50 text-blue-600 cursor-pointer hover:bg-blue-100" onclick="App.filterTimeline('daily')">daily</button>
+            <button class="chip bg-purple-50 text-purple-600 cursor-pointer hover:bg-purple-100" onclick="App.filterTimeline('learning')">learning</button>
+            <button class="chip bg-green-50 text-green-600 cursor-pointer hover:bg-green-100" onclick="App.filterTimeline('social')">social</button>
+            <button class="chip bg-orange-50 text-orange-600 cursor-pointer hover:bg-orange-100" onclick="App.filterTimeline('work')">work</button>
+            <button class="chip bg-pink-50 text-pink-600 cursor-pointer hover:bg-pink-100" onclick="App.filterTimeline('emotion')">emotion</button>
+          </div>
+        </div>
+        <div id="timelineEmpty" class="text-center py-20 text-slate-400">
+          <div class="text-5xl mb-3">📅</div>
+          <div>请先选择人物以查看事件时间线</div>
+        </div>
+        <div id="timelineContent"></div>
+      </div>
+
+      <!-- Tab: Sessions -->
+      <div id="tab-sessions" class="hidden fade-in">
+        <div class="mb-4 flex items-center gap-3">
+          <label class="text-slate-600 text-sm font-medium">选择 Session:</label>
+          <select id="sessionSelect" class="flex-1 max-w-md border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  onchange="App.loadSession(this.value)">
+            <option value="">-- 选择一个 Session --</option>
+          </select>
+          <span id="sessionMeta" class="text-slate-400 text-sm"></span>
+        </div>
+        <div id="sessionEmpty" class="text-center py-20 text-slate-400">
+          <div class="text-5xl mb-3">💬</div>
+          <div>请从下拉菜单选择一个 Session</div>
+        </div>
+        <div id="sessionMessages" class="hidden max-w-3xl mx-auto space-y-4"></div>
+      </div>
+
+      <!-- Tab: Recall Test -->
+      <div id="tab-recall" class="hidden fade-in">
+        <div class="max-w-2xl mx-auto">
+          <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-6 mb-6">
+            <h2 class="font-bold text-lg mb-4 text-slate-800">🔍 召回测试</h2>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Owner</label>
+                <select id="recallOwner" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+                  <option value="">-- 选择 Owner --</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">用户名称</label>
+                <input id="recallUserName" type="text" placeholder="输入用户名..."
+                       class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">消息内容</label>
+                <textarea id="recallMessage" rows="3" placeholder="输入要测试召回的消息..."
+                          class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none"></textarea>
+              </div>
+              <button onclick="App.testRecall()"
+                      class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg py-2 text-sm transition flex items-center justify-center gap-2"
+                      id="recallBtn">
+                <span>🔍</span><span>召回</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="recallEmpty" class="text-center py-10 text-slate-400">
+            <div class="text-4xl mb-2">🕵️</div>
+            <div>填写上方表单并点击「召回」</div>
+          </div>
+          <div id="recallResult" class="hidden space-y-4 fade-in">
+            <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
+              <div class="flex flex-wrap gap-3 mb-4">
+                <div>
+                  <span class="text-xs text-slate-500 block mb-1">意图</span>
+                  <span class="chip bg-indigo-100 text-indigo-700 text-sm" id="recallIntent">-</span>
+                </div>
+                <div>
+                  <span class="text-xs text-slate-500 block mb-1">置信度</span>
+                  <span class="chip bg-emerald-100 text-emerald-700 text-sm" id="recallConfidence">-</span>
+                </div>
+                <div>
+                  <span class="text-xs text-slate-500 block mb-1">延迟</span>
+                  <span class="chip bg-slate-100 text-slate-600 text-sm" id="recallLatency">-</span>
+                </div>
+              </div>
+              <div class="bg-slate-50 rounded-lg p-4">
+                <div class="text-xs text-slate-500 mb-1 font-medium">画像摘要</div>
+                <div id="recallProfileSummary" class="text-sm text-slate-700 leading-relaxed">-</div>
+              </div>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
+              <div class="font-semibold text-slate-700 mb-3">相关事件</div>
+              <div id="recallEvents" class="space-y-2"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- end tab content -->
+  </main>
+</div><!-- end layout -->
+
+<script>
+const EVENT_COLORS = {
+  daily: { bg: 'bg-blue-50', text: 'text-blue-700', border: '#3b82f6', chip: 'bg-blue-100 text-blue-700' },
+  learning: { bg: 'bg-purple-50', text: 'text-purple-700', border: '#8b5cf6', chip: 'bg-purple-100 text-purple-700' },
+  social: { bg: 'bg-green-50', text: 'text-green-700', border: '#10b981', chip: 'bg-green-100 text-green-700' },
+  work: { bg: 'bg-orange-50', text: 'text-orange-700', border: '#f59e0b', chip: 'bg-orange-100 text-orange-700' },
+  emotion: { bg: 'bg-pink-50', text: 'text-pink-700', border: '#ec4899', chip: 'bg-pink-100 text-pink-700' },
+};
+function evColor(type) { return EVENT_COLORS[type] || { bg: 'bg-slate-50', text: 'text-slate-700', border: '#94a3b8', chip: 'bg-slate-100 text-slate-600' }; }
+
+function spinner() {
+  return `<svg class="spinner w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24">
+    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+  </svg>`;
+}
+
+function cleanContent(text) {
+  // Remove 【历史|说话人:助手】 prefix and <emotion:xxx> tags
+  return text.replace(/【历史\|说话人:[^】]*】\s*/g, '')
+             .replace(/<emotion:[^>]*>/g, '')
+             .trim();
+}
+
+function formatDate(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  return d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit', year: 'numeric' });
+}
+
+function formatDateTime(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function renderChips(container, items, colorClass, emptyEl) {
+  container.innerHTML = '';
+  if (!items || items.length === 0) {
+    if (emptyEl) emptyEl.classList.remove('hidden');
+    return;
+  }
+  if (emptyEl) emptyEl.classList.add('hidden');
+  items.forEach(item => {
+    const val = typeof item === 'string' ? item : (item.item || item.pattern || item.topic || item.value || item.key || item.name || JSON.stringify(item));
+    const chip = document.createElement('span');
+    chip.className = `chip ${colorClass}`;
+    chip.textContent = val;
+    container.appendChild(chip);
+  });
+}
+
+const App = {
+  state: {
+    currentPersonId: null,
+    currentOwnerId: '',
+    currentTab: 'profile',
+    selectedSession: null,
+    autoRefresh: true,
+    persons: [],
+    timelineFilter: 'all',
+    allEvents: [],
+    owners: [],
+  },
+
+  async init() {
+    await Promise.all([App.loadStats(), App.loadOwners()]);
+    await App.loadPersons('');
+    await App.loadSessions();
+    setInterval(() => { if (App.state.autoRefresh) App.loadStats(); }, 30000);
+    document.getElementById('autoRefreshToggle').addEventListener('change', e => {
+      App.state.autoRefresh = e.target.checked;
+    });
+  },
+
+  async loadStats() {
+    try {
+      const r = await fetch('/dashboard/api/stats');
+      const d = await r.json();
+      document.getElementById('statPersons').textContent = d.persons + ' 人';
+      document.getElementById('statEvents').textContent = d.events + ' 事件';
+      document.getElementById('statSessions').textContent = d.sessions + ' Sessions';
+      document.getElementById('statOwners').textContent = d.owners + ' Owners';
+    } catch(e) { console.error('loadStats', e); }
+  },
+
+  async loadOwners() {
+    try {
+      const r = await fetch('/dashboard/api/owners');
+      const owners = await r.json();
+      App.state.owners = owners;
+
+      const ownerFilter = document.getElementById('ownerFilter');
+      const recallOwner = document.getElementById('recallOwner');
+      ownerFilter.innerHTML = '<option value="">全部 Owner</option>';
+      recallOwner.innerHTML = '<option value="">-- 选择 Owner --</option>';
+
+      owners.forEach(o => {
+        const short = o.owner_id.substring(0, 8) + '...';
+        const opt1 = new Option(`${short} (${o.person_count}人)`, o.owner_id);
+        ownerFilter.appendChild(opt1);
+        const opt2 = new Option(`${short} (${o.person_count}人)`, o.owner_id);
+        recallOwner.appendChild(opt2);
+      });
+    } catch(e) { console.error('loadOwners', e); }
+  },
+
+  async loadPersons(ownerId) {
+    App.state.currentOwnerId = ownerId;
+    const list = document.getElementById('personList');
+    list.innerHTML = `<div class="flex justify-center py-8">${spinner()}</div>`;
+
+    try {
+      const url = ownerId ? `/dashboard/api/persons?owner_id=${encodeURIComponent(ownerId)}` : '/dashboard/api/persons';
+      const r = await fetch(url);
+      const persons = await r.json();
+      App.state.persons = persons;
+      App.renderPersonList(persons);
+    } catch(e) {
+      list.innerHTML = '<div class="text-center text-red-400 text-sm py-8">加载失败</div>';
+    }
+  },
+
+  renderPersonList(persons) {
+    const list = document.getElementById('personList');
+    if (!persons.length) {
+      list.innerHTML = '<div class="text-center text-slate-400 text-sm py-8"><div class="text-3xl mb-2">🔍</div>暂无人物数据</div>';
+      return;
+    }
+
+    // Render in time order (API already returns created_at DESC)
+    let html = '';
+    persons.forEach(p => {
+      const isSelected = p.person_id === App.state.currentPersonId;
+      const shortOwner = p.owner_id.substring(0, 6);
+      const dateStr = p.created_at ? new Date(p.created_at).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) : '';
+      html += `
+        <div class="person-card p-2 rounded-lg cursor-pointer transition ${isSelected ? 'selected' : ''}"
+             onclick="App.selectPerson('${p.person_id}')" data-name="${p.name.toLowerCase()}">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2 min-w-0">
+              <div class="w-7 h-7 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                ${p.name[0] || '?'}
+              </div>
+              <div class="min-w-0">
+                <div class="text-sm font-medium text-slate-800 truncate">${p.name}</div>
+                <div class="text-xs text-slate-400">${p.role || 'unknown'} · ${shortOwner}...</div>
+              </div>
+            </div>
+            <div class="flex-shrink-0 text-right">
+              <div class="text-xs font-medium text-blue-600">${p.event_count} 事件</div>
+              <div class="text-xs text-slate-400">${dateStr}</div>
+            </div>
+          </div>
+        </div>`;
+    });
+
+    list.innerHTML = html;
+  },
+
+  filterPersons(query) {
+    const q = query.toLowerCase().trim();
+    const cards = document.querySelectorAll('.person-card');
+    cards.forEach(card => {
+      const name = card.dataset.name || '';
+      card.style.display = (!q || name.includes(q)) ? '' : 'none';
+    });
+  },
+
+  async selectPerson(personId) {
+    App.state.currentPersonId = personId;
+    // Re-render list to update selection
+    App.renderPersonList(App.state.persons);
+
+    const tab = App.state.currentTab;
+    if (tab === 'profile' || tab === 'timeline') {
+      await App.loadPersonDetail(personId);
+    }
+  },
+
+  async loadPersonDetail(personId) {
+    document.getElementById('profileEmpty').classList.add('hidden');
+    document.getElementById('profileContent').classList.remove('hidden');
+    document.getElementById('profileContent').style.opacity = '0.5';
+
+    try {
+      const r = await fetch(`/dashboard/api/person/${personId}`);
+      if (!r.ok) throw new Error('Not found');
+      const p = await r.json();
+      App.renderProfile(p);
+      App.state.allEvents = p.events || [];
+      App.renderTimeline(p.events || []);
+    } catch(e) {
+      document.getElementById('profileEmpty').classList.remove('hidden');
+      document.getElementById('profileContent').classList.add('hidden');
+    }
+  },
+
+  renderProfile(p) {
+    const content = document.getElementById('profileContent');
+    content.style.opacity = '1';
+
+    document.getElementById('profileAvatar').textContent = p.name[0] || '?';
+    document.getElementById('profileName').textContent = p.name;
+    document.getElementById('profileMeta').textContent = `${p.role || 'unknown'} · ${p.owner_id.substring(0, 8)}... · 加入于 ${formatDate(p.created_at)}`;
+
+    // Identity
+    const identity = p.identity || {};
+    const identityItems = typeof identity === 'object' && !Array.isArray(identity)
+      ? Object.entries(identity).map(([k, v]) => `${k}: ${v}`)
+      : (Array.isArray(identity) ? identity : []);
+    renderChips(
+      document.getElementById('identityTags'), identityItems,
+      'bg-blue-100 text-blue-700', document.getElementById('identityEmpty')
+    );
+
+    renderChips(
+      document.getElementById('preferencesTags'), p.preferences,
+      'bg-emerald-100 text-emerald-700', document.getElementById('preferencesEmpty')
+    );
+    renderChips(
+      document.getElementById('behaviorsTags'), p.behaviors,
+      'bg-amber-100 text-amber-700', document.getElementById('behaviorsEmpty')
+    );
+
+    // current_focus - could be aversions or focus
+    const focus = p.current_focus || p.aversions || [];
+    renderChips(
+      document.getElementById('focusTags'), focus,
+      'bg-rose-100 text-rose-700', document.getElementById('focusEmpty')
+    );
+
+    // Events table
+    const events = p.events || [];
+    document.getElementById('eventCountBadge').textContent = events.length;
+    const evTable = document.getElementById('eventsTable');
+    const evEmpty = document.getElementById('eventsEmpty');
+
+    if (!events.length) {
+      evTable.innerHTML = '';
+      evEmpty.classList.remove('hidden');
+    } else {
+      evEmpty.classList.add('hidden');
+      evTable.innerHTML = events.map(e => {
+        const c = evColor(e.event_type);
+        const importance = Math.round((e.importance || 0.5) * 100);
+        return `
+          <div class="px-5 py-3 hover:bg-slate-50 transition">
+            <div class="flex items-start gap-3">
+              <div class="text-xs text-slate-400 w-16 flex-shrink-0 pt-0.5">${formatDate(e.event_time)}</div>
+              <span class="chip ${c.chip} text-xs flex-shrink-0">${e.event_type || '-'}</span>
+              <div class="flex-1 min-w-0">
+                <div class="text-sm text-slate-700">${e.summary || e.title || '-'}</div>
+                ${e.participant_names && e.participant_names.length ?
+                  `<div class="mt-1 flex flex-wrap gap-1">${e.participant_names.map(n => `<span class="chip bg-slate-100 text-slate-500 text-xs">${n}</span>`).join('')}</div>` : ''}
+                <div class="importance-bar mt-1.5 w-24"><div class="importance-fill" style="width:${importance}%"></div></div>
+              </div>
+              <div class="text-xs text-slate-400 flex-shrink-0">${e.emotion_summary || ''}</div>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    // Relationships
+    const rels = p.relationships || [];
+    const relList = document.getElementById('relationsList');
+    const relEmpty = document.getElementById('relationsEmpty');
+    if (!rels.length) {
+      relEmpty.classList.remove('hidden');
+      relList.innerHTML = '';
+    } else {
+      relEmpty.classList.add('hidden');
+      relList.innerHTML = rels.map(r => {
+        const other = r.from_person_id === p.person_id ? r.to_name : r.from_name;
+        const direction = r.from_person_id === p.person_id ? '→' : '←';
+        const sentiment = r.sentiment || 0;
+        const sentColor = sentiment > 0.1 ? 'bg-green-100 text-green-700' : sentiment < -0.1 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600';
+        return `<span class="chip ${sentColor}">${direction} ${other} (${r.relation_type || 'unknown'})</span>`;
+      }).join('');
+    }
+  },
+
+  renderTimeline(events) {
+    const filter = App.state.timelineFilter;
+    const filtered = filter === 'all' ? events : events.filter(e => e.event_type === filter);
+
+    const content = document.getElementById('timelineContent');
+    const empty = document.getElementById('timelineEmpty');
+
+    if (!filtered.length) {
+      content.innerHTML = '';
+      empty.classList.remove('hidden');
+      if (!events.length) {
+        empty.querySelector && (empty.querySelector('div').textContent = '请先选择人物以查看事件时间线');
+      }
+      return;
+    }
+    empty.classList.add('hidden');
+
+    // Group by date
+    const byDate = {};
+    filtered.forEach(e => {
+      const d = e.event_time ? e.event_time.substring(0, 10) : '未知日期';
+      if (!byDate[d]) byDate[d] = [];
+      byDate[d].push(e);
+    });
+
+    content.innerHTML = Object.entries(byDate).map(([date, evs]) => `
+      <div class="mb-6">
+        <div class="text-sm font-semibold text-slate-500 mb-3 flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-slate-300 inline-block"></span>
+          ${date}
+        </div>
+        <div class="space-y-3 pl-5">
+          ${evs.map(e => {
+            const c = evColor(e.event_type);
+            const importance = Math.round((e.importance || 0.5) * 100);
+            return `
+              <div class="relative timeline-line bg-white rounded-lg shadow-sm border-l-4 p-4" style="border-left-color:${c.border}">
+                <div class="flex items-start justify-between gap-3">
+                  <div class="flex-1">
+                    <div class="flex items-center gap-2 mb-1">
+                      <span class="chip ${c.chip} text-xs">${e.event_type}</span>
+                      ${e.title ? `<span class="text-sm font-medium text-slate-800">${e.title}</span>` : ''}
+                    </div>
+                    <div class="text-sm text-slate-600 leading-relaxed">${e.summary || '-'}</div>
+                    ${e.participant_names && e.participant_names.length ?
+                      `<div class="mt-2 flex flex-wrap gap-1">${e.participant_names.map(n => `<span class="chip bg-slate-100 text-slate-500 text-xs">${n}</span>`).join('')}</div>` : ''}
+                    <div class="mt-2 flex items-center gap-2">
+                      <span class="text-xs text-slate-400">重要性</span>
+                      <div class="importance-bar w-20"><div class="importance-fill" style="width:${importance}%"></div></div>
+                      <span class="text-xs text-slate-400">${importance}%</span>
+                      ${e.emotion_summary ? `<span class="chip bg-pink-50 text-pink-600 text-xs">${e.emotion_summary}</span>` : ''}
+                    </div>
+                  </div>
+                </div>
+              </div>`;
+          }).join('')}
+        </div>
+      </div>`).join('');
+  },
+
+  filterTimeline(type) {
+    App.state.timelineFilter = type;
+    App.renderTimeline(App.state.allEvents);
+  },
+
+  async loadSessions() {
+    try {
+      const r = await fetch('/dashboard/api/sessions');
+      const sessions = await r.json();
+      const select = document.getElementById('sessionSelect');
+      select.innerHTML = '<option value="">-- 选择一个 Session --</option>';
+      sessions.forEach(s => {
+        const label = `${s.session_id.substring(0, 8)}... (${s.message_count}条) ${s.preview ? '- ' + s.preview.substring(0, 30) : ''}`;
+        select.appendChild(new Option(label, s.session_id));
+      });
+    } catch(e) { console.error('loadSessions', e); }
+  },
+
+  async loadSession(sessionId) {
+    App.state.selectedSession = sessionId;
+    const empty = document.getElementById('sessionEmpty');
+    const messages = document.getElementById('sessionMessages');
+
+    if (!sessionId) {
+      empty.classList.remove('hidden');
+      messages.classList.add('hidden');
+      return;
+    }
+
+    messages.innerHTML = `<div class="flex justify-center py-8">${spinner()}</div>`;
+    empty.classList.add('hidden');
+    messages.classList.remove('hidden');
+
+    try {
+      const r = await fetch(`/dashboard/api/session/${encodeURIComponent(sessionId)}`);
+      const msgs = await r.json();
+      App.renderSession(msgs);
+    } catch(e) {
+      messages.innerHTML = '<div class="text-center text-red-400 py-8">加载失败</div>';
+    }
+  },
+
+  renderSession(msgs) {
+    const container = document.getElementById('sessionMessages');
+    if (!msgs.length) {
+      container.innerHTML = '<div class="text-center text-slate-400 py-8">Session 为空</div>';
+      return;
+    }
+
+    let userCount = 0;
+    let html = '';
+
+    for (let i = 0; i < msgs.length; i++) {
+      const m = msgs[i];
+      if (m.role === 'user') {
+        userCount++;
+        const content = cleanContent(m.content);
+        const isExtractTrigger = userCount > 0 && userCount % 5 === 0;
+        const recallId = `recall-${i}`;
+        const recallPanelId = `recall-panel-${i}`;
+
+        if (isExtractTrigger) {
+          html += `<div class="extraction-marker px-3 py-1.5 text-xs text-amber-800 font-medium flex items-center gap-2 my-2">
+            ⚡ 第 ${userCount} 轮触发提取
+          </div>`;
+        }
+
+        html += `
+          <div class="flex flex-col items-end gap-1">
+            <div class="flex items-end gap-2 max-w-lg">
+              <div class="flex-1"></div>
+              <div class="chat-user px-4 py-2.5 text-sm leading-relaxed max-w-xs">${content}</div>
+            </div>
+            <div class="text-xs text-slate-400 pr-1">用户 · 第${userCount}轮</div>
+            <div class="w-full">
+              <button class="collapse-btn text-xs text-amber-600 hover:text-amber-800 flex items-center gap-1 px-1"
+                      onclick="App.toggleRecall('${recallPanelId}', '${encodeURIComponent(content)}')">
+                <span>📌</span><span>查看记忆注入</span><span id="${recallId}-arrow">▼</span>
+              </button>
+              <div id="${recallPanelId}" class="hidden mt-1 recall-panel rounded-lg p-3">
+                <div class="text-xs text-amber-700 mb-1 font-medium">当前召回记忆</div>
+                <div class="text-xs text-slate-500 italic" id="${recallPanelId}-content">点击加载...</div>
+              </div>
+            </div>
+          </div>`;
+      } else {
+        const content = cleanContent(m.content);
+        html += `
+          <div class="flex items-start gap-2 max-w-lg">
+            <div class="w-7 h-7 rounded-full bg-slate-300 flex items-center justify-center text-xs flex-shrink-0 mt-0.5">🤖</div>
+            <div class="chat-assistant px-4 py-2.5 text-sm leading-relaxed">${content}</div>
+          </div>`;
+      }
+    }
+
+    container.innerHTML = html;
+  },
+
+  async toggleRecall(panelId, encodedMsg) {
+    const panel = document.getElementById(panelId);
+    const content = document.getElementById(panelId + '-content');
+    const arrow = document.getElementById(panelId.replace('panel', '') + 'arrow');
+
+    if (panel.classList.contains('hidden')) {
+      panel.classList.remove('hidden');
+      if (arrow) arrow.textContent = '▲';
+      if (content && content.textContent === '点击加载...') {
+        content.textContent = '召回中...';
+        // Use current person selection for recall context
+        const owner = App.state.currentOwnerId || (App.state.owners[0] && App.state.owners[0].owner_id) || '';
+        if (!owner) {
+          content.textContent = '请先在左侧选择 Owner / 人物';
+          return;
+        }
+        const personData = App.state.persons.find(p => p.person_id === App.state.currentPersonId);
+        const userName = personData ? personData.name : '';
+        if (!userName) {
+          content.textContent = '请先在左侧选择人物';
+          return;
+        }
+        try {
+          const r = await fetch('/dashboard/api/recall', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              owner_id: owner,
+              user_name: userName,
+              message: decodeURIComponent(encodedMsg),
+            })
+          });
+          const d = await r.json();
+          if (d.error) { content.textContent = d.error; return; }
+          let text = `意图: ${d.intent} | 置信度: ${d.confidence}\n`;
+          text += `画像: ${d.profile_summary || '(空)'}\n`;
+          if (d.events && d.events.length) {
+            text += `事件: ${d.events.map(e => e.summary).join(' / ')}`;
+          }
+          content.textContent = text;
+        } catch(e) {
+          content.textContent = '召回失败: ' + e.message;
+        }
+      }
+    } else {
+      panel.classList.add('hidden');
+      if (arrow) arrow.textContent = '▼';
+    }
+  },
+
+  async testRecall() {
+    const owner_id = document.getElementById('recallOwner').value;
+    const user_name = document.getElementById('recallUserName').value.trim();
+    const message = document.getElementById('recallMessage').value.trim();
+
+    if (!owner_id || !user_name || !message) {
+      alert('请填写完整的 Owner、用户名和消息');
+      return;
+    }
+
+    const btn = document.getElementById('recallBtn');
+    btn.innerHTML = `${spinner()} <span>召回中...</span>`;
+    btn.disabled = true;
+
+    document.getElementById('recallEmpty').classList.add('hidden');
+    document.getElementById('recallResult').classList.add('hidden');
+
+    try {
+      const r = await fetch('/dashboard/api/recall', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner_id, user_name, message }),
+      });
+      const d = await r.json();
+
+      document.getElementById('recallIntent').textContent = d.intent || '-';
+      document.getElementById('recallConfidence').textContent = d.confidence || '-';
+      document.getElementById('recallLatency').textContent = `${Math.round(d.latency_ms || 0)}ms`;
+      document.getElementById('recallProfileSummary').textContent = d.profile_summary || '(空)';
+
+      const evContainer = document.getElementById('recallEvents');
+      if (!d.events || !d.events.length) {
+        evContainer.innerHTML = '<div class="text-slate-400 text-sm text-center py-4">无相关事件</div>';
+      } else {
+        evContainer.innerHTML = d.events.map(e => {
+          const c = evColor(e.event_type);
+          return `<div class="flex gap-3 p-3 ${c.bg} rounded-lg">
+            <span class="chip ${c.chip} text-xs flex-shrink-0">${e.event_type}</span>
+            <div class="flex-1">
+              <div class="text-sm text-slate-700">${e.summary}</div>
+              ${e.participants && e.participants.length ?
+                `<div class="mt-1 flex flex-wrap gap-1">${e.participants.map(n => `<span class="chip bg-white text-slate-500 text-xs">${n}</span>`).join('')}</div>` : ''}
+            </div>
+            <div class="text-xs text-slate-400 flex-shrink-0">${e.event_time ? e.event_time.substring(0,10) : ''}</div>
+          </div>`;
+        }).join('');
+      }
+
+      document.getElementById('recallResult').classList.remove('hidden');
+    } catch(e) {
+      alert('召回失败: ' + e.message);
+    } finally {
+      btn.innerHTML = '<span>🔍</span><span>召回</span>';
+      btn.disabled = false;
+    }
+  },
+
+  switchTab(tab) {
+    App.state.currentTab = tab;
+    const tabs = ['profile', 'timeline', 'sessions', 'recall'];
+    const buttons = document.querySelectorAll('header + div main .bg-white.border-b button');
+
+    tabs.forEach((t, i) => {
+      const el = document.getElementById(`tab-${t}`);
+      const btn = document.getElementById(`tab-btn-${t}`);
+      if (t === tab) {
+        el.classList.remove('hidden');
+        el.classList.add('fade-in');
+        if (btn) { btn.className = 'tab-active py-3 px-4 text-sm transition'; }
+        else if (buttons[i]) { buttons[i].className = 'tab-active py-3 px-4 text-sm transition'; }
+      } else {
+        el.classList.add('hidden');
+        el.classList.remove('fade-in');
+        if (btn) { btn.className = 'tab-inactive py-3 px-4 text-sm transition'; }
+        else if (buttons[i]) { buttons[i].className = 'tab-inactive py-3 px-4 text-sm transition'; }
+      }
+    });
+
+    // Load data for the tab if person is selected
+    if (tab === 'sessions') {
+      App.loadSessions();
+    } else if ((tab === 'profile' || tab === 'timeline') && App.state.currentPersonId) {
+      App.loadPersonDetail(App.state.currentPersonId);
+    }
+  },
+};
+
+// Boot
+document.addEventListener('DOMContentLoaded', () => App.init());
+</script>
+</body>
+</html>

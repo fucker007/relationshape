@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>关系图谱 - Memory System</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        /* Color and Layout Variables */
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: rgba(15, 23, 42, 0.95);
+            --bg-toolbar: rgba(15, 23, 42, 0.9);
+            --border-color: rgba(100, 116, 139, 0.3);
+            --border-color-light: rgba(100, 116, 139, 0.4);
+            --text-primary: white;
+            --text-secondary: rgba(148, 163, 184, 0.8);
+            --text-tertiary: rgba(148, 163, 184, 0.6);
+            --accent-blue: #3b82f6;
+            --accent-blue-light: rgba(59, 130, 246, 0.2);
+            --accent-blue-lighter: rgba(59, 130, 246, 0.3);
+            --accent-blue-border: rgba(59, 130, 246, 0.4);
+            --accent-blue-border-hover: rgba(59, 130, 246, 0.6);
+
+            /* Z-index hierarchy */
+            --z-toolbar: 100;
+            --z-side-panel: 120;
+            --z-tooltip: 150;
+            --z-loading: 200;
+            --z-mobile-warning: 300;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: var(--bg-primary);
+        }
+
+        canvas {
+            display: block;
+            cursor: default;
+        }
+
+        .canvas-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: var(--bg-primary);
+        }
+
+        /* ─── Toolbar ─────────────────────────────────────────────────────────── */
+        .toolbar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: var(--bg-toolbar);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            gap: 20px;
+            z-index: var(--z-toolbar);
+            backdrop-filter: blur(10px);
+        }
+
+        .toolbar-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 150px;
+        }
+
+        .toolbar-search {
+            flex: 1;
+            max-width: 300px;
+        }
+
+        .toolbar-search input {
+            width: 100%;
+            padding: 8px 12px;
+            background: var(--accent-blue-light);
+            border: 1px solid var(--accent-blue-border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .toolbar-search input::placeholder {
+            color: var(--text-tertiary);
+        }
+
+        .toolbar-search input:focus {
+            outline: none;
+            background: var(--accent-blue-lighter);
+            border-color: var(--accent-blue-border-hover);
+        }
+
+        .toolbar-search input:focus-visible {
+            outline: 2px solid var(--accent-blue);
+            outline-offset: 2px;
+        }
+
+        .toolbar-stats {
+            display: flex;
+            gap: 20px;
+            margin-left: auto;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .stat-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .toolbar-button {
+            padding: 8px 16px;
+            background: var(--accent-blue-light);
+            border: 1px solid var(--accent-blue-border);
+            border-radius: 6px;
+            color: var(--accent-blue);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .toolbar-button:hover {
+            background: var(--accent-blue-lighter);
+            border-color: var(--accent-blue-border-hover);
+            color: var(--accent-blue);
+        }
+
+        .toolbar-button:focus-visible {
+            outline: 2px solid var(--accent-blue);
+            outline-offset: 2px;
+        }
+
+        /* ─── Canvas Layer ─────────────────────────────────────────────────────── */
+        .canvas-layer {
+            position: absolute;
+            top: 60px;
+            left: 0;
+            width: 100%;
+            height: calc(100% - 60px);
+        }
+
+        .canvas-static {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        .canvas-interactive {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        /* ─── Loading Overlay ──────────────────────────────────────────────────── */
+        .loading-overlay {
+            position: absolute;
+            top: 60px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(15, 23, 42, 0.8);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: var(--z-loading);
+            backdrop-filter: blur(4px);
+        }
+
+        .loading-overlay.active {
+            display: flex;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--accent-blue-light);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            position: absolute;
+            bottom: 100px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        /* ─── Tooltip ──────────────────────────────────────────────────────────── */
+        .tooltip {
+            position: absolute;
+            background: rgba(30, 41, 59, 0.95);
+            border: 1px solid var(--border-color-light);
+            border-radius: 6px;
+            padding: 8px 12px;
+            color: var(--text-primary);
+            font-size: 12px;
+            pointer-events: none;
+            z-index: var(--z-tooltip);
+            display: none;
+            white-space: nowrap;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .tooltip.active {
+            display: block;
+        }
+
+        /* ─── Side Panel ───────────────────────────────────────────────────────── */
+        .side-panel {
+            position: absolute;
+            top: 60px;
+            right: 0;
+            width: 350px;
+            height: calc(100% - 60px);
+            background: var(--bg-secondary);
+            border-left: 1px solid var(--border-color);
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+            z-index: var(--z-side-panel);
+            overflow-y: auto;
+            backdrop-filter: blur(10px);
+        }
+
+        .side-panel.active {
+            transform: translateX(0);
+        }
+
+        .side-panel-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .side-panel-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .side-panel-close {
+            width: 24px;
+            height: 24px;
+            background: none;
+            border: none;
+            color: var(--text-tertiary);
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: color 0.2s;
+        }
+
+        .side-panel-close:hover {
+            color: var(--text-primary);
+        }
+
+        .side-panel-close:focus-visible {
+            outline: 2px solid var(--accent-blue);
+            outline-offset: 2px;
+        }
+
+        .side-panel-content {
+            padding: 20px;
+        }
+
+        .panel-section {
+            margin-bottom: 20px;
+        }
+
+        .panel-label {
+            font-size: 12px;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .panel-value {
+            font-size: 14px;
+            color: var(--text-primary);
+            word-break: break-word;
+        }
+
+        /* ─── Operation Hints ──────────────────────────────────────────────────── */
+        .hints {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            font-size: 12px;
+            color: var(--text-tertiary);
+            display: flex;
+            gap: 20px;
+            z-index: var(--z-toolbar);
+        }
+
+        .hint-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .hint-key {
+            background: var(--accent-blue-light);
+            border: 1px solid var(--accent-blue-border);
+            border-radius: 3px;
+            padding: 2px 6px;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        /* ─── Mobile Warning ───────────────────────────────────────────────────── */
+        .mobile-warning {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(30, 41, 59, 0.95);
+            border: 1px solid var(--border-color-light);
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+            color: var(--text-primary);
+            z-index: var(--z-mobile-warning);
+            display: none;
+            max-width: 300px;
+        }
+
+        .mobile-warning.active {
+            display: block;
+        }
+
+        .mobile-warning-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .mobile-warning-text {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        @media (max-width: 768px) {
+            .mobile-warning {
+                display: block;
+            }
+
+            .toolbar {
+                display: none;
+            }
+
+            .canvas-layer {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="canvas-container">
+        <!-- Toolbar: Main navigation and controls -->
+        <div class="toolbar">
+            <div class="toolbar-title">
+                <span>🕸️</span>
+                <span>关系图谱</span>
+            </div>
+
+            <div class="toolbar-search">
+                <input type="text" id="searchInput" placeholder="搜索人物或Owner..." aria-label="Search persons or owners">
+            </div>
+
+            <div class="toolbar-stats">
+                <div class="stat-item">
+                    <span class="stat-label">人物</span>
+                    <span class="stat-value" id="statPersons">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">关系</span>
+                    <span class="stat-value" id="statRelationships">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">事件</span>
+                    <span class="stat-value" id="statEvents">0</span>
+                </div>
+            </div>
+
+            <button class="toolbar-button" id="refreshButton" aria-label="Refresh graph data">刷新</button>
+        </div>
+
+        <!-- Canvas Layer: D3.js visualization rendering area -->
+        <div class="canvas-layer">
+            <canvas id="canvasStatic" class="canvas-static"></canvas>
+            <canvas id="canvasInteractive" class="canvas-interactive"></canvas>
+        </div>
+
+        <!-- Loading Overlay: Shows spinner while fetching data -->
+        <div class="loading-overlay" id="loadingOverlay">
+            <div>
+                <div class="loading-spinner"></div>
+                <div class="loading-text" id="loadingText">正在加载关系数据...</div>
+            </div>
+        </div>
+
+        <!-- Tooltip: Displays node information on hover -->
+        <div class="tooltip" id="tooltip"></div>
+
+        <!-- Side Panel: Slides in from right when node is selected -->
+        <div class="side-panel" id="sidePanel">
+            <div class="side-panel-header">
+                <div class="side-panel-title" id="panelTitle">节点详情</div>
+                <button class="side-panel-close" id="panelCloseButton" aria-label="Close side panel">✕</button>
+            </div>
+            <div class="side-panel-content" id="panelContent">
+                <!-- Content will be populated dynamically -->
+            </div>
+        </div>
+
+        <!-- Operation Hints: Keyboard and mouse interaction guide -->
+        <div class="hints">
+            <div class="hint-item">
+                <span class="hint-key">双击</span>
+                <span>返回上级</span>
+            </div>
+            <div class="hint-item">
+                <span class="hint-key">ESC</span>
+                <span>返回</span>
+            </div>
+            <div class="hint-item">
+                <span class="hint-key">滚轮</span>
+                <span>缩放</span>
+            </div>
+            <div class="hint-item">
+                <span class="hint-key">拖拽</span>
+                <span>平移/移动节点</span>
+            </div>
+        </div>
+
+        <!-- Mobile Warning: Alerts users on small screens -->
+        <div class="mobile-warning" id="mobileWarning">
+            <div class="mobile-warning-title">⚠️ 建议使用桌面浏览器</div>
+            <div class="mobile-warning-text">关系图谱在桌面环境下体验最佳</div>
+        </div>
+    </div>
+
+    <script>
+        // ─── DataManager: API data fetching and transformation ──────────────────
+        /**
+         * DataManager handles all API communication and data transformation.
+         * Responsibilities:
+         * - Fetch data from /dashboard/api/* endpoints
+         * - Transform raw API responses to graph node/edge structures
+         * - Cache data to avoid redundant requests
+         * - Handle errors gracefully
+         */
+        class DataManager {
+            /**
+             * @param {string} apiBaseUrl - Base URL for API endpoints (default: '/dashboard/api')
+             * @param {number} cacheTTL - Cache time-to-live in milliseconds (default: 5 minutes)
+             */
+            constructor(apiBaseUrl = '/dashboard/api', cacheTTL = 5 * 60 * 1000) {
+                this.apiBaseUrl = apiBaseUrl;
+                this.cacheTTL = cacheTTL;
+                this.cache = new Map(); // { key: { data, timestamp } }
+                this.stats = null;
+            }
+
+            /**
+             * Check if cached entry is still valid
+             * @private
+             */
+            _isCacheValid(timestamp) {
+                return Date.now() - timestamp < this.cacheTTL;
+            }
+
+            /**
+             * Get from cache if valid, otherwise return null
+             * @private
+             */
+            _getFromCache(key) {
+                const entry = this.cache.get(key);
+                if (entry && this._isCacheValid(entry.timestamp)) {
+                    return entry.data;
+                }
+                if (entry) {
+                    this.cache.delete(key); // Remove expired entry
+                }
+                return null;
+            }
+
+            /**
+             * Store in cache with timestamp
+             * @private
+             */
+            _setCache(key, data) {
+                this.cache.set(key, { data, timestamp: Date.now() });
+            }
+
+            /**
+             * Fetch global statistics
+             * @returns {Promise<Object>} Stats object with persons, events, relationships, sessions, owners
+             * @throws {Error} If fetch fails
+             */
+            async fetchStats() {
+                const cached = this._getFromCache('stats');
+                if (cached) return cached;
+
+                try {
+                    const response = await fetch(`${this.apiBaseUrl}/stats`);
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch stats: HTTP ${response.status}`);
+                    }
+                    const data = await response.json();
+                    this._setCache('stats', data);
+                    this.stats = data;
+                    return data;
+                } catch (error) {
+                    console.error(`[DataManager] ${error.message}`);
+                    throw error;
+                }
+            }
+
+            /**
+             * Fetch all owners with person counts
+             * @returns {Promise<Array>} Array of owner objects
+             */
+            async fetchOwners() {
+                if (this.cache.has('owners')) {
+                    return this.cache.get('owners');
+                }
+
+                try {
+                    const response = await fetch(`${this.apiBaseUrl}/owners`);
+                    if (!response.ok) throw new Error(`Owners fetch failed: ${response.status}`);
+                    const data = await response.json();
+
+                    // Transform to graph nodes
+                    const owners = data.map(owner => ({
+                        id: owner.owner_id,
+                        type: 'owner',
+                        label: owner.owner_id.substring(0, 8),
+                        personCount: owner.person_count,
+                        eventCount: 0, // Will be populated from stats
+                        createdAt: new Date().toISOString(),
+                        x: 0,
+                        y: 0,
+                        radius: 20 + Math.sqrt(owner.person_count) * 3
+                    }));
+
+                    this.cache.set('owners', owners);
+                    return owners;
+                } catch (error) {
+                    console.error('Failed to fetch owners:', error);
+                    throw error;
+                }
+            }
+
+            /**
+             * Fetch persons for a specific owner
+             * @param {string} ownerId - Owner UUID
+             * @returns {Promise<Array>} Array of person objects
+             */
+            async fetchPersons(ownerId) {
+                const cacheKey = `persons_${ownerId}`;
+                if (this.cache.has(cacheKey)) {
+                    return this.cache.get(cacheKey);
+                }
+
+                try {
+                    const response = await fetch(`${this.apiBaseUrl}/persons?owner_id=${ownerId}`);
+                    if (!response.ok) throw new Error(`Persons fetch failed: ${response.status}`);
+                    const data = await response.json();
+
+                    // Transform to graph nodes
+                    const persons = data.map(person => ({
+                        id: person.person_id,
+                        type: 'person',
+                        name: person.name,
+                        role: person.role || 'secondary',
+                        eventCount: person.event_count || 0,
+                        relationshipCount: 0, // Will be populated from relationships
+                        createdAt: person.created_at,
+                        x: 0,
+                        y: 0,
+                        radius: person.role === 'primary' ? 30 : 20,
+                        color: person.role === 'primary' ? '#3b82f6' : '#64748b'
+                    }));
+
+                    this.cache.set(cacheKey, persons);
+                    return persons;
+                } catch (error) {
+                    console.error(`Failed to fetch persons for owner ${ownerId}:`, error);
+                    throw error;
+                }
+            }
+
+            /**
+             * Fetch detailed person data including relationships and events
+             * @param {string} personId - Person UUID
+             * @returns {Promise<Object>} Person detail object with relationships and events
+             */
+            async fetchPersonDetail(personId) {
+                const cacheKey = `person_detail_${personId}`;
+                if (this.cache.has(cacheKey)) {
+                    return this.cache.get(cacheKey);
+                }
+
+                try {
+                    const response = await fetch(`${this.apiBaseUrl}/person/${personId}`);
+                    if (!response.ok) throw new Error(`Person detail fetch failed: ${response.status}`);
+                    const data = await response.json();
+
+                    // Transform relationships to edges
+                    const relationships = (data.relationships || []).map(rel => ({
+                        id: rel.id,
+                        source: rel.from_person_id,
+                        target: rel.to_person_id,
+                        eventCount: 0, // Will be populated from events
+                        sentiment: rel.sentiment || 0,
+                        intensity: 0.5, // Default intensity
+                        relationType: rel.relation_type || 'unknown',
+                        events: []
+                    }));
+
+                    // Transform events to nodes
+                    const events = (data.events || []).map(event => ({
+                        id: event.event_id,
+                        type: 'event',
+                        summary: event.summary || event.title || '',
+                        eventType: event.event_type || 'unknown',
+                        eventTime: event.event_time,
+                        importance: event.importance || 0.5,
+                        emotions: event.emotion_summary || {},
+                        x: 0,
+                        y: 0,
+                        shape: 'diamond'
+                    }));
+
+                    const detail = {
+                        person: {
+                            id: data.person_id,
+                            type: 'person',
+                            name: data.name,
+                            role: data.role || 'secondary',
+                            identity: data.identity || [],
+                            preferences: data.preferences || [],
+                            behaviors: data.behaviors || [],
+                            aversions: data.aversions || [],
+                            currentFocus: data.current_focus || [],
+                            createdAt: data.created_at
+                        },
+                        relationships,
+                        events
+                    };
+
+                    this.cache.set(cacheKey, detail);
+                    return detail;
+                } catch (error) {
+                    console.error(`Failed to fetch person detail for ${personId}:`, error);
+                    throw error;
+                }
+            }
+
+            /**
+             * Fetch events for a specific relationship
+             * @param {string} fromPersonId - Source person UUID
+             * @param {string} toPersonId - Target person UUID
+             * @returns {Promise<Array>} Array of event objects
+             */
+            async fetchRelationshipEvents(fromPersonId, toPersonId) {
+                const cacheKey = `rel_events_${fromPersonId}_${toPersonId}`;
+                if (this.cache.has(cacheKey)) {
+                    return this.cache.get(cacheKey);
+                }
+
+                try {
+                    // Note: This endpoint may not exist yet; fallback to empty array
+                    const response = await fetch(
+                        `${this.apiBaseUrl}/relationship-events?from=${fromPersonId}&to=${toPersonId}`
+                    );
+
+                    let events = [];
+                    if (response.ok) {
+                        events = await response.json();
+                    }
+
+                    // Transform to event nodes
+                    const eventNodes = events.map(event => ({
+                        id: event.event_id || event.id,
+                        type: 'event',
+                        summary: event.summary || event.title || '',
+                        eventType: event.event_type || 'unknown',
+                        eventTime: event.event_time || event.created_at,
+                        importance: event.importance || 0.5,
+                        emotions: event.emotion_summary || {},
+                        x: 0,
+                        y: 0,
+                        shape: 'diamond'
+                    }));
+
+                    this.cache.set(cacheKey, eventNodes);
+                    return eventNodes;
+                } catch (error) {
+                    console.warn(`Failed to fetch relationship events:`, error);
+                    // Return empty array on error (graceful degradation)
+                    return [];
+                }
+            }
+
+            /**
+             * Clear cache for a specific key or all cache
+             * @param {string} key - Optional cache key to clear; if not provided, clears all
+             */
+            clearCache(key) {
+                if (key) {
+                    this.cache.delete(key);
+                } else {
+                    this.cache.clear();
+                }
+            }
+
+            /**
+             * Get cache statistics for debugging
+             * @returns {Object} Cache info
+             */
+            getCacheStats() {
+                return {
+                    size: this.cache.size,
+                    keys: Array.from(this.cache.keys())
+                };
+            }
+        }
+
+        // Initialize on page load
+        console.log('DataManager class loaded');
+    </script>
+</body>
+</html>

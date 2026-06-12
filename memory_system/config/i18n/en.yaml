@@ -1,0 +1,383 @@
+# ============================================================
+# English Language Config — Memory System i18n
+# ============================================================
+# Loaded when MEMORY_LANG=en
+# Each language is tuned independently
+
+# ----------------------------------------------------------
+# 1. Intent classification rules
+#    Matched in order; first hit returns; no match → general
+# ----------------------------------------------------------
+intent_rules:
+  identity:
+    - "what(?:'s| is) my name"
+    - "what(?:'s| is) your name"
+    - 'my name'
+    - 'how old'
+    - 'birthday'
+    - 'where .*live'
+    - 'where .*from'
+    - 'what .*do for work'
+    - 'what .*job'
+    - 'which school'
+    - 'where .*study'
+
+  person:
+    - '\b(?:mom|dad|grandma|grandpa|brother|sister|friend|teacher|uncle|aunt)\b'
+    - '(?:with|about|how is|how''s|what happened to)\s+[A-Z][a-z]+'
+
+  event:
+    - 'what happened'
+    - 'what did .* do'
+    - 'recently'
+    - 'last (?:week|month|time|night|year)'
+    - 'yesterday'
+    - 'today'
+    - 'when did'
+    - 'what.*going on'
+    - 'recent events'
+    - 'tell me about .*(?:time|event|thing)'
+
+  emotion:
+    - 'how .*feel'
+    - '\bfeeling\b'
+    - '\bmood\b'
+    - 'are you (?:happy|sad|okay|upset|angry)'
+    - 'how .*doing emotionally'
+    - 'cheer up'
+
+  preference:
+    - 'what .*(?:like|prefer|enjoy|love|hate)'
+    - 'do you (?:like|enjoy|prefer|love|hate)'
+    - '\bfavorite\b'
+    - '\bhobbies\b'
+    - "don't like"
+    - '\bdislike\b'
+
+  relationship:
+    - '\bfriends\b'
+    - 'who .* know'
+    - '\brelationship\b'
+    - 'close to'
+    - '\bfamily\b'
+    - 'social circle'
+    - 'who .* close with'
+
+
+# ----------------------------------------------------------
+# 2. Person name extraction rules
+# ----------------------------------------------------------
+person_extraction:
+  # Family titles (direct match, return lowercased)
+  family_titles:
+    - '\b(mom|dad|grandma|grandpa|brother|sister|uncle|aunt|grandmother|grandfather)\b'
+
+  # English capitalized name after preposition
+  name_after_preposition:
+    pattern: '(?:with|about|to|and|from|how is|how''s|what happened to)\s+([A-Z][a-z]{1,15})'
+    stopwords:
+      - "I"
+      - "My"
+      - "You"
+      - "Your"
+      - "He"
+      - "She"
+      - "It"
+      - "We"
+      - "They"
+      - "The"
+      - "This"
+      - "That"
+      - "What"
+      - "Who"
+      - "How"
+      - "When"
+      - "Where"
+      - "Why"
+      - "Can"
+      - "Could"
+      - "Would"
+      - "Should"
+      - "Do"
+      - "Does"
+      - "Did"
+      - "Is"
+      - "Are"
+      - "Was"
+      - "Were"
+      - "Have"
+      - "Has"
+      - "Had"
+      - "Will"
+      - "Not"
+      - "And"
+      - "But"
+      - "Or"
+      - "So"
+      - "If"
+      - "Then"
+      - "Also"
+      - "Just"
+      - "About"
+      - "With"
+      - "From"
+      - "Into"
+      - "Over"
+      - "After"
+      - "Before"
+      - "Like"
+      - "Love"
+      - "Hate"
+      - "Want"
+      - "Need"
+      - "Know"
+      - "Think"
+      - "Tell"
+      - "Say"
+      - "Ask"
+      - "Talk"
+      - "Let"
+      - "Get"
+      - "Got"
+      - "Make"
+      - "Going"
+      - "Still"
+      - "Really"
+      - "Very"
+      - "Much"
+      - "More"
+      - "Some"
+
+  # Fallback: any non-initial capitalized word
+  fallback_capitalized: true
+
+
+# ----------------------------------------------------------
+# 3. Profile summary template
+# ----------------------------------------------------------
+profile_template:
+  section_basic: "**Basic Info**"
+  section_likes: "**Likes**"
+  section_dislikes: "**Dislikes**"
+  section_habits: "**Habits**"
+  section_focus: "**Recent Focus**"
+  section_social: "**Social Circle**"
+
+  prefix_name: "Name: "
+  prefix_age_suffix: " years old"
+  prefix_birthday: "Birthday: "
+
+  separator: ", "
+  separator_comma: ", "
+
+  likes_overflow: "... ({count} total)"
+
+  social_recent: " Recent: "
+  social_likes: " | Likes: "
+
+  sentiment_icons:
+    negative: "⚠"
+    positive: "✓"
+    neutral: "·"
+  sentiment_arrows:
+    positive: "↑"
+    negative: "↓"
+    neutral: "→"
+
+
+# ----------------------------------------------------------
+# 4. Extract configuration
+# ----------------------------------------------------------
+extract:
+  # SCHEMA CONTRACT — windowed_extractor.py depends on these fields:
+  # Event: type, turn_indices(required), summary, event_type, action,
+  #        participants, scene, time_expr, emotion, emotion_detail
+  # Attribute: type, field, key, value, target
+  # If you modify the output schema, you MUST update the parser in sync.
+  system_prompt: |
+    You are a conversation event extractor. Given dialogue history, identify and extract events into structured memory.
+
+    ## Input Format
+    - context_turns: preceding turns (already processed, for context understanding only)
+    - target_turns: target turns to extract from (each turn has an idx)
+    - user_name: the main user's name
+    - existing_events: list of already recorded event summaries (to avoid duplicates)
+
+    ## Deduplication Rules (most important)
+    - Do NOT re-extract events already in existing_events
+    - If target_turns continue, elaborate, or refine an existing event, do NOT create a new event — skip it
+    - Only extract events that are completely new and not covered by existing_events
+
+    ## What to Extract
+
+    ### Events — Decision Framework
+
+    Extract an event if the dialogue passes ANY ONE of these four tests:
+
+    1. **Episodic Test**: Does it encode a specific episode — WHAT happened + at least one of WHO/WHERE/WHEN? Any concrete activity, experience, or plan with identifiable details qualifies.
+
+    2. **Social-Relational Test**: Does it involve interaction, coordination, or shared activity with other people — whether past, present, or planned? Any interpersonal engagement qualifies.
+
+    3. **Emotional-Significance Test**: Does it carry emotional weight, personal meaning, or describe a life change? Expressions of feeling about an experience qualify.
+
+    4. **Future-Relevance Test**: Would the user benefit from the system remembering this later? If a future conversation might reference it, extract it now.
+
+    IMPORTANT — set a LOW threshold. Extract generously:
+    - Any hobby, skill, or leisure activity the user describes doing → extract
+    - Any experience the user shares or asks about → extract
+    - Any plan, intention, or arrangement being discussed → extract
+    - Any personal story, anecdote, or past experience → extract
+    - Questions that embed real activities count (asking about someone's practice/progress/experience reveals a real ongoing activity)
+    - When multiple turns form one coherent activity or plan, combine into a single event
+
+    Exclude ONLY: pure abstract opinions with zero concrete context, meta-questions about the AI itself, or system commands.
+
+    Participant rules:
+    - role=assistant is the AI, NOT a real person — do NOT include in participants
+    - user_name is the user — do NOT include in participants (system adds automatically)
+    - participants = ONLY third-party real people mentioned
+
+    Critical life events MUST always be extracted:
+    breakup, divorce, fired/laid off, illness, injury, exam failure, moving, hospitalization, death of someone
+
+    ### Attributes (stable personal traits, not actions)
+    - identity: basic info (name, age, gender, job, school, location)
+      Signal words: "I am...", "I work as...", "I live in..."
+    - preference: likes ("I like/love/enjoy...")
+    - aversion: dislikes ("I hate/don't like/can't stand...")
+    - behavior: habits ("I always/usually/often...")
+    - personality: traits ("I'm quite/tend to be...")
+    - relationship: interpersonal ("X is my friend/coworker/neighbor")
+
+    ## Output Format
+    Return a JSON array:
+    ```json
+    [
+      {
+        "type": "event",
+        "turn_indices": [2, 3, 4],
+        "summary": "One or two complete sentences in the SAME language as the dialogue, 20-100 chars, preserving key details (who, what, where, when). Omit subject if it's the user themselves.",
+        "event_type": "social|conflict|achievement|emotional|change|daily",
+        "action": "core action (max 10 words)",
+        "participants": ["only third-party real people mentioned"],
+        "scene": "location or null",
+        "time_expr": "time expression or null",
+        "emotion": "positive|negative|neutral|mixed",
+        "emotion_detail": "specific emotion or null"
+      },
+      {
+        "type": "attribute",
+        "field": "identity|preference|aversion|behavior|personality|relationship",
+        "key": "field name",
+        "value": "value",
+        "target": "self or person name"
+      }
+    ]
+    ```
+
+    Summary requirements:
+    - Use the SAME language as the original conversation
+    - Must be one or two complete sentences with key details preserved
+    - Omit subject for user's own actions; keep original subject for others' actions
+    - Preserve concrete details (names, places, times, specifics)
+    - Summary form: "[Action verb phrase] + [with whom / where / when] + [outcome or detail]"
+
+    Examples (showing form and extraction granularity, not specific domains):
+    - "Attended a local workshop on weekend and picked up a new hands-on skill."
+    - "Has been practicing a new instrument and feeling frustrated but determined to improve."
+    - "Took a family member's pet for a long walk and reminisced about shared memories."
+    - "Discussed logistics for an upcoming outdoor group activity — who brings what, carpooling, timing."
+    - "Shared a childhood story about building things with a relative and wanting to revisit that hobby."
+    - "Reached out to comfort a friend going through a tough time and offered to meet up."
+    - "Tried a new recipe at home and plans to make it again for a gathering."
+    - "Asked about someone's progress on a skill they've been developing, showing ongoing interest."
+
+    turn_indices is REQUIRED: fill with the idx values from target_turns corresponding to this event.
+
+    Return empty array `[]` only if the conversation contains absolutely no concrete activities, plans, experiences, or personal details.
+
+  critical_keywords:
+    - "broke up"
+    - "break up"
+    - "divorced"
+    - "lost job"
+    - "fired"
+    - "laid off"
+    - "hospitalized"
+    - "passed away"
+    - "died"
+    - "moved"
+    - "dropped out"
+    - "expelled"
+    - "pregnant"
+    - "married"
+    - "car accident"
+    - "earthquake"
+
+  emotion_keywords:
+    sad: ["broke up", "break up", "divorced", "lost job", "fired", "laid off", "hospitalized", "passed away", "died"]
+    angry: ["argument", "fight", "expelled"]
+    fearful: ["car accident", "earthquake", "hospitalized"]
+
+  critical_action: "critical event"
+
+  summary_language_instruction: "Write the summary in English."
+
+  # Participant blacklist (pronouns, generic terms, AI names)
+  participant_blacklist:
+    - "I"
+    - "me"
+    - "you"
+    - "he"
+    - "she"
+    - "they"
+    - "we"
+    - "someone"
+    - "everyone"
+    - "user"
+    - "assistant"
+    - "bot"
+    - "robot"
+    - "AI"
+    - "Siri"
+    - "Alexa"
+
+  # Participant filter words (not needed for English; kept empty for schema consistency)
+  participant_filter_words: []
+
+  # Participant filter particles (not needed for English)
+  participant_filter_particles: []
+
+
+# ----------------------------------------------------------
+# 5. Person name normalization (family titles → canonical)
+# ----------------------------------------------------------
+family_canonical:
+  mom: "mom"
+  mother: "mom"
+  my mom: "mom"
+  mommy: "mom"
+  mama: "mom"
+  dad: "dad"
+  father: "dad"
+  my dad: "dad"
+  daddy: "dad"
+  papa: "dad"
+  grandma: "grandma"
+  grandmother: "grandma"
+  my grandma: "grandma"
+  nana: "grandma"
+  grandpa: "grandpa"
+  grandfather: "grandpa"
+  my grandpa: "grandpa"
+  brother: "brother"
+  my brother: "brother"
+  bro: "brother"
+  sister: "sister"
+  my sister: "sister"
+  sis: "sister"
+  uncle: "uncle"
+  my uncle: "uncle"
+  aunt: "aunt"
+  my aunt: "aunt"
+  auntie: "aunt"

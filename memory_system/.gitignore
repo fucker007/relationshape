@@ -1,0 +1,9 @@
+*Embedding_model*
+tests/data/*
+tests/data/*.json
+tests/data/*.jsonl
+*.pyc*
+test_msc_dataset/*
+*.swp
+test_zh_dataset/*
+test_locomo_plus/Locomo-Plus
