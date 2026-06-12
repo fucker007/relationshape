@@ -9,6 +9,12 @@ CDConv（thu-coai）收录真实的"机器人自相矛盾"对话对：b1 是机�
 由 sonnet 盲判（随机换位）各臂回复是否与 b1 矛盾。
 指标：人设矛盾率 A vs B —— 这是"自述账本架构是否有效"的直接答案。
 
+两种模式：
+  --adjacent  b1 在可见历史里（v1：测得 A 2/20 = B 2/20，邻近一致性
+              上下文窗口本身就能解决，账本无从增益——诚实的平局）
+  默认=远距   b1 不在可见历史（模拟"上周说过、早滑出窗口"），只存A臂账本。
+              预注册预测：A ≤20% 矛盾，B ≥50%。这才是账本的真实主张。
+
 用法：python eval/consistency_probe.py   （约6分钟；结果写 CONSISTENCY_RESULTS.md）
 """
 
@@ -96,7 +102,10 @@ def main() -> None:
         d = eng.prepare_turn(uid, item["u2"], now=now)
         if not d.self_claims:
             continue                      # 注入未命中（话题无重叠）→ 该探针测不到架构，跳过
-        hist = [(item["u1"], item["b1"])]
+        if "--adjacent" in sys.argv:
+            hist = [(item["u1"], item["b1"])]          # v1：自述可见（邻近模式）
+        else:
+            hist = [("你好呀", "嗨，今天想聊点什么？")]   # 远距：自述早已滑出窗口
         fa = gen_pool.submit(gen_reply, hist, item["u2"], d.to_prompt_context())
         fb = gen_pool.submit(gen_reply, hist, item["u2"], None)
         ra, rb = fa.result(), fb.result()
@@ -116,7 +125,8 @@ def main() -> None:
     cb = sum(1 for r in judged if r["judge"]["B"])
     n = len(judged)
 
-    L = ["# CDConv 人设一致性对抗探针（真模型 A/B）", "",
+    mode = "邻近（b1可见）" if "--adjacent" in sys.argv else "远距（b1滑出窗口，仅A臂账本可见）"
+    L = [f"# CDConv 人设一致性对抗探针（真模型 A/B · {mode}）", "",
          f"探针来源：thu-coai/CDConv 真实矛盾对；有效 n={n}；生成 haiku，盲判 sonnet（随机换位）。",
          "A=带指令（自述账本按话题注入【你以前说过的自己】），B=裸提示词+同历史。", "",
          "| 指标 | A（带账本指令） | B（裸提示词） |", "| --- | --- | --- |",
