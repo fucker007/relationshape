@@ -20,9 +20,11 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -36,6 +38,8 @@ GEN_MODEL = "haiku"     # 贴近实时语音产品会用的档位
 JUDGE_MODEL = "sonnet"
 T0 = datetime(2026, 1, 1, 9, 0)
 HISTORY = ROOT / "eval" / "regression_history.jsonl"
+CHECKPOINT = ROOT / "eval" / ".e2e_checkpoint.jsonl"   # 断点续跑：每轮落盘
+STATE_DIR = ROOT / "eval" / ".e2e_state"               # 引擎状态固定目录（配合续跑）
 
 PERSONA = (
     "【自动化评测】这是陪伴对话产品的离线质量评测：你为产品角色「Q仔」生成候选回复，"
@@ -318,20 +322,44 @@ def _git_rev() -> str:
 
 
 def main() -> None:
-    eng = CompanionEngine(config=EngineConfig(state_dir=tempfile.mkdtemp()))
+    # 断点续跑：有检查点就接着跑（崩溃/重启不再从零开始）；--fresh 强制全新
+    fresh = "--fresh" in sys.argv
+    rows: list[dict] = []
+    if fresh or not CHECKPOINT.exists():
+        if STATE_DIR.exists():
+            shutil.rmtree(STATE_DIR)
+        CHECKPOINT.unlink(missing_ok=True)
+    else:
+        for line in CHECKPOINT.read_text(encoding="utf-8").splitlines():
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                break
+        print(f"断点续跑：跳过已完成的 {len(rows)} 轮", file=sys.stderr, flush=True)
+
+    eng = CompanionEngine(config=EngineConfig(state_dir=str(STATE_DIR)))
     hist_a: dict[str, list] = {}
     hist_b: dict[str, list] = {}
-    rows: list[dict] = []
     refusals = {"A": 0, "B": 0}
+    for r in rows:  # 从检查点重建对话历史与拒绝计数
+        hist_a.setdefault(r["uid"], []).append((r["text"], r["a"]))
+        hist_b.setdefault(r["uid"], []).append((r["text"], r["b"]))
+        for arm, resp in (("A", r["a"]), ("B", r["b"])):
+            if REFUSAL_RE.search(resp):
+                refusals[arm] += 1
 
+    pool = ThreadPoolExecutor(max_workers=2)
     for i, spec in enumerate(TURNS):
+        if i < len(rows):
+            continue
         uid, text = spec["uid"], spec["text"]
         now = T0 + timedelta(minutes=spec["dt"])
 
         d = eng.prepare_turn(uid, text, now=now)
         ctx = d.to_prompt_context()
-        resp_a = gen_reply(hist_a.setdefault(uid, []), text, ctx)
-        resp_b = gen_reply(hist_b.setdefault(uid, []), text, None)
+        fut_a = pool.submit(gen_reply, hist_a.setdefault(uid, []), text, ctx)
+        fut_b = pool.submit(gen_reply, hist_b.setdefault(uid, []), text, None)
+        resp_a, resp_b = fut_a.result(), fut_b.result()
         eng.commit(uid, text, resp_a, now=now)
         hist_a[uid].append((text, resp_a))
         hist_b[uid].append((text, resp_b))
@@ -353,11 +381,14 @@ def main() -> None:
             scene += "；禁止:" + "；".join(d.forbidden[:3])
         verdict = judge(text, scene[:420], resp_a, resp_b, swap=bool(i % 2))
 
-        rows.append(dict(text=text, ctx=ctx, a=resp_a, b=resp_b, ra=res_a, rb=res_b, judge=verdict))
+        row = dict(uid=uid, text=text, ctx=ctx, a=resp_a, b=resp_b, ra=res_a, rb=res_b, judge=verdict)
+        rows.append(row)
+        with CHECKPOINT.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
         print(
             f"[{i+1}/{len(TURNS)}] {text[:16]}  A:{sum(p for _, p in res_a)}/{len(res_a)}"
             f"  B:{sum(p for _, p in res_b)}/{len(res_b)}  优:{verdict.get('better', '?')}",
-            file=sys.stderr,
+            file=sys.stderr, flush=True,
         )
 
     # ---------------- 汇总 ----------------
@@ -448,7 +479,8 @@ def main() -> None:
         L.append("</details>")
 
     (ROOT / "eval" / "LLM_E2E_REPORT.md").write_text("\n".join(L) + "\n", encoding="utf-8")
-    print(f"\n{'⚠ INVALID' if invalid else 'OK'}  报告已写入 eval/LLM_E2E_REPORT.md，历史已追加 {HISTORY.name}", file=sys.stderr)
+    CHECKPOINT.unlink(missing_ok=True)   # 跑完才清检查点；中途崩溃则保留供续跑
+    print(f"\n{'⚠ INVALID' if invalid else 'OK'}  报告已写入 eval/LLM_E2E_REPORT.md，历史已追加 {HISTORY.name}", file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":

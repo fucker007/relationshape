@@ -6,3 +6,5 @@ runtime/
 dist/
 build/
 eval/data/
+eval/.e2e_checkpoint.jsonl
+eval/.e2e_state/
