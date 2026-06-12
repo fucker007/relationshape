@@ -238,6 +238,7 @@ class CompanionEngine:
         directive.metamessage = eq_notes.metamessage
         directive.validation_hint = eq_notes.validation_hint
         directive.precise_emotion_word = eq_notes.precise_emotion_word
+        directive.spoken_emotion_word = eq_notes.spoken_emotion_word
 
         # 承诺只有真被指示提起时才计一次"已提醒"（共情轮不算，避免闲聊几轮就误判失约）
         promise_surfaced = bool(due) and frame.input_type not in (

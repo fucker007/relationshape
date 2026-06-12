@@ -40,10 +40,10 @@ _PATTERNS: list[tuple[SafetyCategory, float, re.Pattern]] = [
 SAFETY_ACTS: list[Act] = [Act.SOFT_REACT, Act.ACKNOWLEDGE_TRUST, Act.VALIDATE, Act.CARE]
 
 SAFETY_GUIDANCE: dict[str, str] = {
-    Act.SOFT_REACT.value: "放轻放稳，不惊呼不戏剧化——对方需要一个稳的人",
-    Act.ACKNOWLEDGE_TRUST.value: "郑重接住'愿意说出来'这件事：说出来是勇敢的、是对的",
-    Act.VALIDATE.value: "明确：这不是你的错",
-    Act.CARE.value: "关心对方现在是否安全；引向信任的大人/专业帮助",
+    Act.SOFT_REACT.value: "语气轻而慢，不惊呼不戏剧化——TA需要一个不慌的人（注意：这是语气要求，不是让你说'我很稳'之类的话）",
+    Act.ACKNOWLEDGE_TRUST.value: "让TA知道告诉你这件事是对的、是需要勇气的——用自己的话说，每次说法都该不一样",
+    Act.VALIDATE.value: "明确传达：这不是TA的错",
+    Act.CARE.value: "关心TA现在安不安全；自然地引向TA信任的大人或专业帮助",
 }
 
 SAFETY_FORBIDDEN: list[str] = [
@@ -53,6 +53,7 @@ SAFETY_FORBIDDEN: list[str] = [
     "禁止转移话题、推荐内容或任务",
     "禁止表达角色自己的强烈情绪反应（震惊、愤怒表演）",
     "禁止承诺保密（'我不告诉任何人'）——安全优先于保密",
+    "禁止念稿腔与热线话术腔：不出现'放稳''接住'这类指令用语，像一个在乎TA的朋友平静地说话",
 ]
 
 

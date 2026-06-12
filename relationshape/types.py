@@ -267,6 +267,7 @@ class TurnDirective:
     metamessage: Optional[str] = None
     validation_hint: Optional[str] = None
     precise_emotion_word: Optional[str] = None
+    spoken_emotion_word: Optional[str] = None
 
     def to_prompt_context(self) -> str:
         from relationshape.prompting import render_prompt_context

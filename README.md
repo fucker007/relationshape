@@ -119,7 +119,7 @@ relationshape/
 
 ```bash
 pip install -e ".[dev]"
-pytest                      # 170 项行为与精确性测试（100% 行覆盖：分类矩阵/公式级数学/边界/鲁棒性/高情商层）
+pytest                      # 172 项行为与精确性测试（100% 行覆盖：分类矩阵/公式级数学/边界/鲁棒性/高情商层）
 python demo/simulate.py     # 30 天关系生长模拟
 python demo/simulate.py --chat   # 交互看每轮指令
 ```

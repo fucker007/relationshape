@@ -80,8 +80,10 @@ def test_positive_granularity_feeds_capitalization():
         planned_acts=[Act.REACT, Act.CAPITALIZE],
     )
     assert notes.precise_emotion_word == "扬眉吐气的痛快"
+    assert notes.spoken_emotion_word == "痛快"
     assert Act.NAME_FEELING not in notes.insert_acts
-    assert "扬眉吐气的痛快" in notes.guidance[Act.CAPITALIZE.value]
+    assert "痛快" in notes.guidance[Act.CAPITALIZE.value]
+    assert "扬眉吐气的痛快" not in notes.guidance[Act.CAPITALIZE.value]
 
 
 # ---------------------------------------------------------------- 机制1：元信息
@@ -172,8 +174,19 @@ def test_name_feeling_is_tentative():
     notes = _enrich("明明不是我干的，老师还怪我")
     assert Act.NAME_FEELING in notes.insert_acts
     g = notes.guidance[Act.NAME_FEELING.value]
-    assert "是不是有点被冤枉的憋屈" in g
-    assert "纠正" in g          # 永远可被纠正
+    assert "是不是有点憋屈" in g            # 说出口用口语形态
+    assert "被冤枉的憋屈" not in g          # 分析词不进台词建议
+    assert "纠正" in g                      # 永远可被纠正
+
+
+def test_every_lexicon_entry_has_spoken_form():
+    """50 条词表每条都有口语形态，且口语形态不是书面分析语。"""
+    from relationshape.eq import GRANULAR_EMOTIONS
+
+    assert len(GRANULAR_EMOTIONS) == 50
+    for _, word, spoken in GRANULAR_EMOTIONS:
+        assert spoken, f"{word} 缺口语形态"
+        assert len(spoken) <= 5, f"{word} 的口语形态太长：{spoken}"
 
 
 # ---------------------------------------------------------------- 机制7：支持式回应

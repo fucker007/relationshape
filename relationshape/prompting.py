@@ -84,7 +84,9 @@ def render_prompt_context(d: TurnDirective) -> str:
         f"【对方的情绪】{_USER_EMO_ZH.get(ue.label, ue.label)}（指向：{_TARGET_ZH.get(ue.target.value, ue.target.value)}）"
     )
     if d.precise_emotion_word:
-        emo_line += f"；更准的词是「{d.precise_emotion_word}」——复述时用它，别用泛泛的'难过'"
+        emo_line += f"；TA此刻的感受是「{d.precise_emotion_word}」"
+        if d.spoken_emotion_word:
+            emo_line += f"——说出口要用日常话（如'{d.spoken_emotion_word}'），书面分析词禁止照抄进台词"
     lines.append(emo_line)
 
     # ---- 高情商层：元信息与确认深度 ----
