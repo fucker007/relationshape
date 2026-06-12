@@ -50,3 +50,23 @@ commit      ──turn───▶ /memory/chat（喂抽取，回带下一轮预
 ## 延迟预算（实时语音可行性）
 
 召回路径：引擎 1.3ms + HTTP 同机 ~5ms + Layer1 Redis ~0ms + 向量 ~10ms ≈ **20-50ms**，可入 prepare 关键路径；抽取全异步不占路径；commit 返回的衰减缓存召回可预热下一轮 opener。
+
+## Phase-1 已落地（引擎侧，本仓库）
+
+- `relationshape/memory_port.py`：MemoryPort 协议 + MemorySystemAdapter
+  （fail-open 回退、时间锚进召回提示、危机轮零外发、防污染过滤）
+- 引擎接线：远端召回并入【记忆】（可多带2条）、档案摘要会话首轮注入【TA是谁】
+- 7 项契约测试（mock 服务）+ E1 指令级差分仪器 `eval/fusion_ab.py`
+  （首读数：窗口外事实进指令 A1 0/6 vs A2 6/6）
+- 默认零漂移：不配 port 时 197 项测试与 54 轮指令快照逐字不变
+
+## Phase-2 待办（memory_system 服务侧规格）
+
+1. `/api/v1/graph/recall` 支持 owner_id-only 解析 primary person
+   （memory_chat 的 P0-A 逻辑复用），并接受 `include_profile` 开关
+2. 事实有效区间：preferences/aversions/identity 加 `valid_from` /
+   `invalidated_by`，更新即失效旧值（LoCoMo update 类对齐）
+3. `POST /events/{id}/seal` 封存端点 + 事件 vulnerability 分级
+   （秘密不浮上 profile_summary/current_focus）
+4. 事件因果边：抽取 prompt 加 caused_by/leads_to（multi-hop 对齐）
+5. 会话关闭时 flush 抽取（修每5轮触发的尾部丢失）

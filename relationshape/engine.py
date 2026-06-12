@@ -25,6 +25,7 @@ from relationshape.affect import appraise, apply_emotion_to_mood, mood_word, reg
 from relationshape.config import EngineConfig
 from relationshape.humor import plan_humor
 from relationshape.identity import CharacterIdentity
+from relationshape.memory_port import MemoryPort
 from relationshape.perception import perceive
 from relationshape.persistence import StateStore
 from relationshape.relationship import (
@@ -52,15 +53,24 @@ from relationshape.types import (
 )
 
 
+# 可外发到远端记忆的轮次：仅用户生活内容（钩子防污染同款边界）
+_FORWARD_TYPES = (
+    InputType.TOPIC, InputType.CREATIVE_TOPIC, InputType.EXTERNAL_COMPLAINT,
+    InputType.GOOD_NEWS, InputType.SELF_DISTRESS, InputType.ASK_ADVICE,
+)
+
+
 class CompanionEngine:
     def __init__(
         self,
         identity: Optional[CharacterIdentity] = None,
         config: Optional[EngineConfig] = None,
+        memory_port: Optional[MemoryPort] = None,
     ) -> None:
         self.identity = identity or CharacterIdentity()
         self.config = config or EngineConfig()
         self.store = StateStore(self.config.state_dir)
+        self.memory_port = memory_port            # None = 纯本地（默认行为不变）
         self._cache: dict[str, UserRelationState] = {}
 
     # ------------------------------------------------------------------ 状态
@@ -147,6 +157,19 @@ class CompanionEngine:
             if highlight:
                 memories = [highlight]
         memories = memories[: self.config.max_recall]
+
+        # ---- 融合层：远端长期记忆（fail-open，危机轮已在上方短路不会到这里）----
+        profile_summary = None
+        if self.memory_port is not None:
+            profile_summary, remote = self.memory_port.recall(
+                user_id, text, now, want_profile=is_session_start,
+            )
+            if remote:
+                seen_text = {m.text[:20] for m in memories}
+                for r in remote:
+                    if r.text[:20] not in seen_text:
+                        memories.append(r)
+                memories = memories[: self.config.max_recall + 2]   # 远端可多带2条
         due = st.memory.due_promises(st.core.sessions)
         milestone = milestone_due(st.core, now, self.config)
 
@@ -249,6 +272,7 @@ class CompanionEngine:
 
         # ---- 本体论身份层：每轮一行立场；身世轮注入全量设定与自述账本 ----
         directive.identity_line = f"{self.identity.name}——{self.identity.ontology_stance}"
+        directive.profile_summary = profile_summary
         if frame.input_type == InputType.ONTOLOGY_QUESTION:
             directive.self_canon = list(self.identity.self_canon)
             directive.self_claims = list(st.adaptation.self_claims)
@@ -337,12 +361,8 @@ class CompanionEngine:
         # ---- 记忆与账本 ----
         # 情景记忆只收用户生活内容：对角色的攻击/夸奖/安抚进账本不进记忆，
         # 否则开场"惦记"的可能是一句"你真笨"；设备抱怨同理（钩子防污染）。
-        episode_types = (
-            InputType.TOPIC, InputType.CREATIVE_TOPIC, InputType.EXTERNAL_COMPLAINT,
-            InputType.GOOD_NEWS, InputType.SELF_DISTRESS, InputType.ASK_ADVICE,
-        )
         if frame.substantive:
-            if frame.input_type in episode_types:
+            if frame.input_type in _FORWARD_TYPES:
                 st.memory.add_episode(
                     user_text, reading.valence, reading.arousal, now,
                     vulnerability=frame.disclosure_depth,
@@ -415,6 +435,13 @@ class CompanionEngine:
 
         st.core.last_seen = now.isoformat()
         self.store.save(st)
+
+        # ---- 融合层：喂入远端抽取（尽力而为；危机轮在上方已 return，永不到达）----
+        if self.memory_port is not None and frame.input_type in _FORWARD_TYPES:
+            self.memory_port.observe(
+                user_id, user_text, assistant_text,
+                session_id=f"{user_id}-s{st.core.sessions}", now=now,
+            )
 
     # ------------------------------------------------------------------ 工具
 

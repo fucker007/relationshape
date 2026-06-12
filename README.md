@@ -119,7 +119,7 @@ relationshape/
 
 ```bash
 pip install -e ".[dev]"
-pytest                      # 172 项行为与精确性测试（100% 行覆盖：分类矩阵/公式级数学/边界/鲁棒性/高情商层）
+pytest                      # 197 项测试（含融合契约与线缆级安全断言）
 python demo/simulate.py     # 30 天关系生长模拟
 python demo/simulate.py --chat   # 交互看每轮指令
 ```
@@ -130,3 +130,4 @@ python demo/simulate.py --chat   # 交互看每轮指令
 - 安全门是保守的默认实现，**部署方必须**按场景叠加更强的分类与升级通道（`SafetyRuling.escalate`）。
 - 多角色 profile、按年龄段的表达尺度（儿童场景必做）、情绪衰减个体差异、`weakness_defenses` 的接入（设备归因）尚未实现。
 - 上层语音管线（双流 opener/continuation、TTS 情绪标签）不在本库范围：`TurnDirective` 已为其预留全部结构化字段。
+- **记忆融合**：`memory_port.py` 提供 MemoryPort 座椅对接 memory_system（人物图谱/向量检索），默认零依赖纯本地；融合证明框架见 `docs/MEMORY_SYSTEM_REVIEW.md`。

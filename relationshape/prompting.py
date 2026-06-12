@@ -70,6 +70,10 @@ def render_prompt_context(d: TurnDirective) -> str:
     if d.identity_line:
         lines.append(f"【你是谁】{d.identity_line}")
 
+    # ---- TA是谁（远端人物档案，会话首轮注入）----
+    if d.profile_summary:
+        lines.append(f"【TA是谁】{d.profile_summary}")
+
     # ---- 关系与时间 ----
     seen = "今天刚见面" if d.is_session_start else "正在聊天中"
     lines.append(f"【关系】认识{d.days_known}天，第{d.session_index}次见面（{seen}）；阶段：{_stage_zh(d)}")
