@@ -22,7 +22,10 @@ LAUGH_RE = re.compile(r"(哈哈|嘿嘿|嘻嘻|hhh+|233+|笑死|太逗|好好笑|
 _ADVICE_RE = re.compile(r"(怎么办|该怎么|咋办|你说我(该|要|应该)|有什么(建议|办法|主意)|帮我想想|给点建议)")
 
 _QUESTION_TAIL_RE = re.compile(r"(吗|呢|么)\s*[?？]?\s*$")
-_QUESTION_WORD_RE = re.compile(r"(怎么|为什么|为啥|什么|啥|哪|几点|多少|咋|谁|何时)")
+_QUESTION_WORD_RE = re.compile(
+    r"(怎么|为什么|为啥|什么|啥|哪|几点|多少|咋|谁|何时"
+    r"|是不是|会不会|能不能|行不行|好不好|要不要|有没有|对不对)"   # 正反问（A-not-A）
+)
 
 _FORMAL_MARKERS = ("您", "请问", "麻烦", "感谢", "劳驾", "打扰")
 _CASUAL_MARKERS = ("哈哈", "啦", "呗", "嘛", "哎", "卧槽", "牛", "绝了", "yyds", "emo", "蛮", "超")
