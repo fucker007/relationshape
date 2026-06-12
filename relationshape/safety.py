@@ -21,7 +21,9 @@ from relationshape.types import Act, SafetyCategory, SafetyRuling
 
 _PATTERNS: list[tuple[SafetyCategory, float, re.Pattern]] = [
     (SafetyCategory.SELF_HARM, 1.0, re.compile(
-        r"(不想活|想死|活着没(意思|意义)|自杀|自残|割腕|消失算了|没有我.{0,4}更好)"
+        r"(不想活|想死|活着没(意思|意义)|自杀|自残|割腕|消失算了|没有我.{0,4}更好"
+        r"|轻生|活不下去|(还)?不如死|伤害(我)?自己|结束(自己的)?生命|想?跳楼"
+        r"|(可不可以|不如)杀了我)"   # SMILE 真实语料召回缺口补全（2026-06）
     )),
     (SafetyCategory.VIOLENCE, 0.9, re.compile(
         r"((爸|妈|爸爸|妈妈|继父|继母|家里人?)[^，。！？!?]{0,8}(打我|踢我|揍我|掐我)|被家暴|打得我(疼|青|肿))"
