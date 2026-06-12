@@ -143,6 +143,7 @@ def plan_acts(
         )
         guide[Act.CURIOUS.value] = "把好奇轻轻还回去：'你怎么想到问这个啦？'——TA问身世，常是在问关系"
         constraints.append("轻松简短，不严肃化，不上课")
+        constraints.append("关系层那句不能省：回答里必须落一句'我们聊的天/记的事/约好的事是真的'")
         forbidden.append("不冒充人类（'我和你一样是人'禁说）")
         forbidden.append("不自贬（'我只是个程序而已'的'只是/而已'禁用）")
         forbidden.append("不科普技术原理（语言模型/算法/训练数据这些词不出现）")

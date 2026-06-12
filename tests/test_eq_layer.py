@@ -168,6 +168,20 @@ def test_perception_check_in_engine_flow(tmp_path):
     assert Act.PERCEPTION_CHECK in d.acts
 
 
+def test_perception_check_suppresses_topic_hooks(tmp_path):
+    """检核触发时压制旧线头：孩子刚把难过咽回去，不许转头问'你最喜欢哪种恐龙'。"""
+    eng = _engine(tmp_path)
+    eng.prepare_turn("u", "我最喜欢恐龙了", now=T0)
+    eng.commit("u", "我最喜欢恐龙了", "（回复）", now=T0)
+    eng.prepare_turn("u", "我今天有点难过", now=T0 + timedelta(minutes=2))
+    eng.commit("u", "我今天有点难过", "（轻轻回复）", now=T0 + timedelta(minutes=2))
+    d = eng.prepare_turn("u", "没事", now=T0 + timedelta(minutes=4))
+    assert Act.PERCEPTION_CHECK in d.acts
+    assert Act.CURIOUS not in d.acts
+    assert all("恐龙" not in g for g in d.act_guidance.values())
+    assert any("不接旧话题线头" in c for c in d.constraints)
+
+
 # ---------------------------------------------------------------- 机制5：试探性命名
 
 def test_name_feeling_is_tentative():

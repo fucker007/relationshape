@@ -179,6 +179,11 @@ class CompanionEngine:
         acts.extend(eq_notes.tail_acts)
         _seen: set = set()
         acts = [a for a in acts if not (a in _seen or _seen.add(a))]
+        # 知觉检核优先于一切话题推进：孩子刚把心事咽回去，不许转头聊旧线头
+        if Act.PERCEPTION_CHECK in acts:
+            acts = [a for a in acts if a != Act.CURIOUS]
+            guide.pop(Act.CURIOUS.value, None)
+            constraints.append("这一轮不接旧话题线头、不开新话题——先把'没事'背后的人接住")
         for k, v in eq_notes.guidance.items():
             guide[k] = v if k not in guide else f"{v}；{guide[k]}"
         for c in eq_notes.constraints:
