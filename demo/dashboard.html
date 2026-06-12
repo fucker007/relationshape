@@ -113,6 +113,11 @@
   </div>
 
   <div class="card" style="grid-column:1/-1">
+    <h2>每轮记忆调用 · 最近 20 轮（每一轮都会查询记忆，相关才注入——这里看得见）</h2>
+    <ul class="plain" id="traceList"></ul>
+  </div>
+
+  <div class="card" style="grid-column:1/-1">
     <h2>指令试驾 · 输入一句话，看引擎此刻会怎么派戏（干跑，不影响真实状态）</h2>
     <textarea id="probeText" placeholder="例如：我今天有点难过 / 你爱我吗 / 同桌抢我橡皮"></textarea>
     <button onclick="preview()">看本轮指令</button>
@@ -197,6 +202,15 @@ async function refresh() {
   document.getElementById('sealedNote').textContent =
     `🔒 封存区：${s.memory.sealed_count} 条（危机相关内容，永不召回、永不展示）`;
 
+  document.getElementById('traceList').innerHTML = (s.traces||[]).map(t=>{
+    const rec = (t.recalled||[]);
+    const chips = rec.map(r=>`<span class="chip ${r.kind==='remote'?'joke':''}">${r.kind==='remote'?'☁':r.kind==='profile'?'👤':'💭'} ${r.text}</span>`).join(' ');
+    return `<li><span class="tag">${(t.t||'').slice(5,16).replace('T',' ')}</span> ${t.text}
+      ${t.itype==='safety' ? '<span class="tag">🔒安全轮</span>'
+        : rec.length ? `<b style="color:var(--good)">✓召回${rec.length}条</b> <span class="chips" style="display:inline-flex">${chips}</span>`
+        : '<span class="meta">— 本轮无相关记忆（查询过，未达相关阈值）</span>'}</li>`;
+  }).join('') || '<li class="meta">还没有对话记录</li>';
+
   const a = s.adaptation;
   const humorZh = {affiliative:"亲和玩笑", self_enhancing:"自嘲", callback:"内部梗", wordplay:"谐音梗", playful_tease:"打趣"};
   document.getElementById('adaptBars').innerHTML =
@@ -213,8 +227,11 @@ async function preview() {
   out.textContent = '…';
   const r = await j('/api/preview', {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({user_id:user, text})});
+  const recLine = r.recalled && r.recalled.length
+    ? `🧠 本轮召回 ${r.recalled.length} 条记忆：` + r.recalled.map(m=>`「${m.text}」(${m.days}天前${m.kind==='remote'?'·远端':''})`).join('、') + (r.profile?' + 人物档案':'') + '\n'
+    : '🧠 本轮无相关记忆注入（已查询，未达阈值）\n';
   out.textContent = r.error ? ('出错：'+r.error)
-    : `识别：${r.input_type} · 角色情绪：${r.emotion} · 动作：${r.acts.join('→')}`
+    : recLine + `识别：${r.input_type} · 角色情绪：${r.emotion} · 动作：${r.acts.join('→')}`
       + `${r.humor?' · 含幽默':''}${r.reward?' · 奖励:'+r.reward:''}${r.safety?' · ⚠安全接管':''}\n\n${r.prompt_context}`;
 }
 

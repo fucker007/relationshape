@@ -308,6 +308,9 @@ class CompanionEngine:
             "due_pids": [p.pid for p in due],
             "promise_surfaced": promise_surfaced,
             "learned": learned,
+            "recalled": [
+                {"text": m.text[:36], "kind": m.kind} for m in memories
+            ] + ([{"text": "（人物档案摘要）", "kind": "profile"}] if profile_summary else []),
             "now": now.isoformat(),
         }
         return directive
@@ -329,6 +332,9 @@ class CompanionEngine:
 
         # ---- 安全轮：封存记忆，深度信任记账，不走常规演进 ----
         if pend.get("safety"):
+            st.traces.append({"t": now.isoformat(timespec="minutes"),
+                              "text": "（危机轮，内容封存）", "itype": "safety", "recalled": []})
+            st.traces = st.traces[-20:]
             st.memory.add_episode(user_text, valence=-0.9, arousal=0.8, now=now, sensitive=True)
             record_substantive_turn(st.ledger, disclosure_depth=3)
             st.last_hook = None
@@ -413,6 +419,15 @@ class CompanionEngine:
         milestone = pend.get("milestone")
         if milestone is not None and milestone not in st.core.milestones_done:
             st.core.milestones_done.append(milestone)
+
+        # ---- 可观测性：每轮记忆调用痕迹（面板"会不会调记忆"的答案）----
+        st.traces.append({
+            "t": now.isoformat(timespec="minutes"),
+            "text": user_text[:30],
+            "itype": frame.input_type.value,
+            "recalled": pend.get("recalled", []),
+        })
+        st.traces = st.traces[-20:]
 
         # ---- 钩子治理：只让用户的真实话题成为下一轮线头 ----
         if frame.input_type == InputType.CHARACTER_REJECTION:

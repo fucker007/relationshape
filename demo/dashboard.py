@@ -119,6 +119,7 @@ def build_state(state_dir: str, user_id: str) -> dict:
             "humor": {k: round(v, 2) for k, v in st.adaptation.humor_receptivity.items()},
         },
         "last_hook": st.last_hook,
+        "traces": list(reversed(st.traces)),
     }
 
 
@@ -133,6 +134,8 @@ def preview_directive(state_dir: str, user_id: str, text: str) -> dict:
         "humor": bool(d.humor),
         "reward": d.reward.rtype.value if d.reward else None,
         "safety": bool(d.safety),
+        "recalled": [{"text": m.text, "kind": m.kind, "days": m.days_ago} for m in d.memories],
+        "profile": bool(d.profile_summary),
         "prompt_context": d.to_prompt_context(),
     }
 

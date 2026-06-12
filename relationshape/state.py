@@ -32,6 +32,7 @@ class UserRelationState:
     recent_reward_keys: list[str] = field(default_factory=list)
     last_hook: Optional[str] = None
     last_user_valence: float = 0.0   # 上一轮用户情绪效价：幽默的情绪惯性门禁用
+    traces: list = field(default_factory=list)   # 每轮记忆调用痕迹（最近20轮，可观测性）
 
     # 本轮 prepare 的中间产物，等 commit 消费；不持久化
     pending: Optional[dict[str, Any]] = None
@@ -51,6 +52,7 @@ class UserRelationState:
             "recent_reward_keys": self.recent_reward_keys,
             "last_hook": self.last_hook,
             "last_user_valence": self.last_user_valence,
+            "traces": self.traces,
         }
 
     @classmethod
@@ -69,4 +71,5 @@ class UserRelationState:
             recent_reward_keys=d.get("recent_reward_keys", []),
             last_hook=d.get("last_hook"),
             last_user_valence=d.get("last_user_valence", 0.0),
+            traces=d.get("traces", []),
         )

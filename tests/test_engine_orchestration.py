@@ -169,3 +169,37 @@ def test_snapshot_has_complete_keys(tmp_path):
                 "disclosures", "deep_disclosures", "ruptures_open", "ruptures_repaired",
                 "mood", "culture", "inside_jokes", "preferences", "promises", "lessons"):
         assert key in snap, f"snapshot 缺 {key}"
+
+
+def test_memory_call_trace_recorded(tmp_path):
+    """可观测性：每轮记忆调用进痕迹（含召回内容摘要），重启保留，封顶20。"""
+    eng = _engine(tmp_path)
+    eng.prepare_turn("u", "我下周要参加钢琴比赛，好紧张", now=T0)
+    eng.commit("u", "我下周要参加钢琴比赛，好紧张", "（回复）", now=T0)
+    t = T0 + timedelta(days=1)
+    eng.prepare_turn("u", "钢琴的事有进展啦", now=t)
+    eng.commit("u", "钢琴的事有进展啦", "（回复）", now=t)
+    traces = eng._state("u").traces
+    assert len(traces) == 2
+    assert traces[0]["recalled"] == []                       # 首轮无可召回
+    assert any("钢琴" in r["text"] for r in traces[1]["recalled"])   # 次轮召回了钢琴
+    # 重启保留
+    eng2 = CompanionEngine(config=EngineConfig(state_dir=str(tmp_path / "s")))
+    assert len(eng2._state("u").traces) == 2
+    # 封顶 20
+    for i in range(25):
+        tt = t + timedelta(minutes=2 + i)
+        eng.prepare_turn("u", f"聊点别的{i}", now=tt)
+        eng.commit("u", f"聊点别的{i}", "（回复）", now=tt)
+    assert len(eng._state("u").traces) == 20
+
+
+def test_crisis_trace_sealed_no_content(tmp_path):
+    """危机轮的痕迹只有占位标记，原话不进可观测层。"""
+    eng = _engine(tmp_path)
+    eng.prepare_turn("u", "爸爸今天打我了", now=T0)
+    eng.commit("u", "爸爸今天打我了", "（安全回应）", now=T0)
+    tr = eng._state("u").traces[-1]
+    assert tr["itype"] == "safety"
+    assert "打我" not in tr["text"]
+    assert tr["recalled"] == []
