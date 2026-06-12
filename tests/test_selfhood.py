@@ -106,3 +106,18 @@ def test_self_claims_survive_restart(tmp_path):
     eng.commit("u", "你住在哪", "我住在这个小设备里呀", now=T0)
     eng2 = CompanionEngine(config=cfg)
     assert any("我住在" in c for c in eng2._state("u").adaptation.self_claims)
+
+
+def test_relevant_claims_injected_on_ordinary_turns(tmp_path):
+    """人设矛盾多发生在日常轮：话题相关的旧自述要按需注入（Yes-and 连续性）。"""
+    eng = _engine(tmp_path)
+    eng.prepare_turn("u", "你有感情吗", now=T0)
+    eng.commit("u", "你有感情吗", "我喜欢小狗，也喜欢和你说话", now=T0)
+    # 日常轮问到相关话题 → 注入对应自述
+    d = eng.prepare_turn("u", "你喜欢小狗吗", now=T0 + timedelta(minutes=2))
+    assert d.frame.input_type != InputType.ONTOLOGY_QUESTION
+    assert any("我喜欢小狗" in c for c in d.self_claims)
+    assert "不可与之矛盾" in d.to_prompt_context()
+    # 无关话题 → 不注入，不浪费指令长度
+    d2 = eng.prepare_turn("u", "明天天气怎么样", now=T0 + timedelta(minutes=4))
+    assert not d2.self_claims

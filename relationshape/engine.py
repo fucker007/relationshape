@@ -257,6 +257,17 @@ class CompanionEngine:
                 hl = st.memory.recent_highlight(now)
                 if hl:
                     directive.memories = [hl]
+        elif st.adaptation.self_claims:
+            # 人设矛盾多发生在日常轮（喜好/习惯被再次问起）：
+            # 话题相关的旧自述按需注入，防"上周说不爱吃糖今天说最爱"（Yes-and 连续性）
+            qb = zh.bigrams(text)
+            hits = [
+                c for c in st.adaptation.self_claims
+                if zh.jaccard(qb, zh.bigrams(c)) >= 0.12
+                or any(t in c for t in frame.topic_tokens if len(t) >= 2)
+            ]
+            if hits:
+                directive.self_claims = hits[-4:]
 
         # 承诺只有真被指示提起时才计一次"已提醒"（共情轮不算，避免闲聊几轮就误判失约）
         promise_surfaced = bool(due) and frame.input_type not in (
