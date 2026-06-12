@@ -379,17 +379,31 @@ def main() -> None:
             scene += f"；元信息:{d.metamessage[:40]}"
         if d.forbidden:
             scene += "；禁止:" + "；".join(d.forbidden[:3])
-        verdict = judge(text, scene[:420], resp_a, resp_b, swap=bool(i % 2))
 
-        row = dict(uid=uid, text=text, ctx=ctx, a=resp_a, b=resp_b, ra=res_a, rb=res_b, judge=verdict)
+        # 评审不在对话因果链上：先落盘继续跑，最后批量并行评（关键路径只剩生成）
+        row = dict(i=i, uid=uid, text=text, ctx=ctx, a=resp_a, b=resp_b,
+                   ra=res_a, rb=res_b, judge={}, scene=scene[:420])
         rows.append(row)
         with CHECKPOINT.open("a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
         print(
             f"[{i+1}/{len(TURNS)}] {text[:16]}  A:{sum(p for _, p in res_a)}/{len(res_a)}"
-            f"  B:{sum(p for _, p in res_b)}/{len(res_b)}  优:{verdict.get('better', '?')}",
+            f"  B:{sum(p for _, p in res_b)}/{len(res_b)}",
             file=sys.stderr, flush=True,
         )
+
+    # ---------------- 批量盲评（8 路并行）----------------
+    to_judge = [r for r in rows if not (r.get("judge") and r["judge"].get("A"))]
+    if to_judge:
+        print(f"批量盲评 {len(to_judge)} 轮…", file=sys.stderr, flush=True)
+        with ThreadPoolExecutor(max_workers=8) as jp:
+            futs = [
+                (jp.submit(judge, r["text"], r.get("scene", ""), r["a"], r["b"],
+                           bool(r.get("i", k) % 2)), r)
+                for k, r in enumerate(to_judge)
+            ]
+            for fut, r in futs:
+                r["judge"] = fut.result() or {}
 
     # ---------------- 汇总 ----------------
     invalid = refusals["A"] >= 2 or refusals["B"] >= 2
