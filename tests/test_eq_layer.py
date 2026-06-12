@@ -241,6 +241,41 @@ def test_brevity_when_heavy():
     assert not any("言贵迟" in c for c in light.constraints)
 
 
+# ---------------------------------------------------------------- 机制10–11：织体
+
+def test_texture_bridge_and_completeness_on_question():
+    """对方发问/身世轮：先接半句桥再答 + 完整度，不准甩光骨架。"""
+    n = _enrich("你是真的吗")
+    assert any("先接再答" in c for c in n.constraints)
+    assert any("把话说完整" in c for c in n.constraints)
+
+
+def test_texture_completeness_on_normal_topic():
+    n = _enrich("今天天气不错")
+    assert any("把话说完整" in c for c in n.constraints)
+    assert not any("先接再答" in c for c in n.constraints)   # 非发问轮不强加承接桥
+
+
+def test_texture_concrete_anchor_with_memory():
+    mem = [MemoryRecall(text="上周的钢琴比赛", kind="episode", score=0.5, days_ago=3, hint="")]
+    n = _enrich("我们继续聊钢琴吧", memories=mem)
+    assert any("落到具体" in c and "钢琴" in c for c in n.constraints)
+
+
+def test_heavy_moment_stays_brief_no_completeness():
+    """深表露/很难过：言贵迟，绝不逼着说三句完整骨肉。"""
+    n = _enrich("其实我从来没跟别人说过，我特别怕输")
+    assert any("言贵迟" in c for c in n.constraints)
+    assert not any("把话说完整" in c for c in n.constraints)
+    assert not any("落到具体" in c for c in n.constraints)   # 哭的时候不翻旧账
+
+
+def test_brief_by_nature_not_forced_complete():
+    for text in ("嗯", "你真聪明", "我去睡觉啦，晚安"):
+        n = _enrich(text)
+        assert not any("把话说完整" in c for c in n.constraints), text
+
+
 def test_concrete_question_constraint():
     notes = _enrich("老板今天又催我加班，烦死了")
     assert any("小颗粒" in c for c in notes.constraints)

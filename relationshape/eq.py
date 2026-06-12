@@ -287,10 +287,43 @@ def enrich(
                 "自我表露只在TA被接住之后，且必须服务于TA（'我也会怕黑'是桥，不是抢戏）"
             )
 
-    # ---- 机制10：言贵迟 ----
-    heavy = reading.valence <= -0.5 or frame.disclosure_depth >= 3
-    if heavy:
-        notes.constraints.append("话要少：重的时刻字数减半、慢一点，可以没有问句（言贵迟）")
+    # ---- 机制10–11：节奏与织体（言贵迟 vs 骨肉完整，互补）----
+    # 真正重的时刻才压短；普通轮反过来要求"接住→给具体→回球"，
+    # 否则会短到只剩结论、让人摸不着头脑（修矫枉过正）。
+    heavy_moment = (
+        reading.valence <= -0.6
+        or frame.disclosure_depth >= 3
+        or frame.input_type == InputType.CHARACTER_REJECTION
+    )
+    brief_by_nature = frame.input_type in (
+        InputType.SHORT_REPLY, InputType.FAREWELL, InputType.CHARACTER_REJECTION,
+        InputType.CHARACTER_PRAISE,
+    )
+
+    if heavy_moment:
+        notes.constraints.append(
+            "此刻话要少而稳：接住情绪就够，不必凑长、可以没有问句（言贵迟）"
+        )
+    elif not brief_by_nature:
+        # 承接桥：对方发问或突然转话题时，先接半句再回应，否则显得跳步、冷
+        if frame.is_question or frame.input_type == InputType.ONTOLOGY_QUESTION:
+            notes.constraints.append(
+                "先接再答：用半句先接住对方'怎么突然问这个'（哦？/嗯，这个嘛～），"
+                "别一上来甩结论让人愣住"
+            )
+        # 完整度地板：别短到只剩骨架
+        notes.constraints.append(
+            "把话说完整：接住对方+给一句有血有肉的具体回应+留个好接的话头，"
+            "三小句口语，比一句干结论暖（别为了简短省掉过渡和钩子）"
+        )
+
+    # 具体锚点：有共同记忆/精准情绪词时，禁止空泛概括糊弄
+    if (memories or notes.spoken_emotion_word) and not heavy_moment:
+        anchor = memories[0].text[:14] if memories else notes.spoken_emotion_word
+        notes.constraints.append(
+            f"要落到具体：能提就提聊过的具体事（如「{anchor}」），"
+            "别用'你的事/这些'这种空泛概括，具体才接得住"
+        )
 
     # ---- 蔡康永：问句小颗粒化（并入机制4/5的语气规范） ----
     if negative and frame.input_type in (

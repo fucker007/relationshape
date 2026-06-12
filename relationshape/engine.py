@@ -250,6 +250,11 @@ class CompanionEngine:
         if frame.input_type == InputType.ONTOLOGY_QUESTION:
             directive.self_canon = list(self.identity.self_canon)
             directive.self_claims = list(st.adaptation.self_claims)
+            # 给"关系是真的"配上具体弹药：一件最近的共同经历，胜过空泛断言
+            if not directive.memories:
+                hl = st.memory.recent_highlight(now)
+                if hl:
+                    directive.memories = [hl]
 
         # 承诺只有真被指示提起时才计一次"已提醒"（共情轮不算，避免闲聊几轮就误判失约）
         promise_surfaced = bool(due) and frame.input_type not in (
