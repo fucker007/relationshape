@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>relationshape · 养成面板</title>
+<style>
+  :root {
+    --bg:#faf7f2; --card:#ffffff; --ink:#3a3530; --sub:#9b938a;
+    --warm:#f4a261; --good:#7cb87c; --bad:#e07a6b; --soft:#f0e9df;
+    --accent:#6b8cae;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--ink); font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif; padding:20px; }
+  header { display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; margin-bottom:18px; }
+  h1 { font-size:22px; }  h1 small { color:var(--sub); font-weight:400; font-size:13px; margin-left:8px; }
+  select { font-size:14px; padding:6px 10px; border-radius:10px; border:1px solid var(--soft); background:var(--card); }
+  .badge { background:var(--warm); color:#fff; border-radius:999px; padding:4px 14px; font-size:14px; }
+  .meta { color:var(--sub); font-size:13px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr)); gap:14px; }
+  .card { background:var(--card); border-radius:16px; padding:16px 18px; box-shadow:0 1px 4px rgba(60,50,40,.06); }
+  .card h2 { font-size:14px; color:var(--sub); margin-bottom:12px; letter-spacing:1px; }
+  .stages { display:flex; align-items:center; gap:4px; margin-bottom:14px; }
+  .stage-dot { flex:1; text-align:center; font-size:11px; color:var(--sub); }
+  .stage-dot .dot { width:14px; height:14px; border-radius:50%; background:var(--soft); margin:0 auto 4px; }
+  .stage-dot.done .dot { background:var(--warm); }
+  .stage-dot.cur .dot { background:var(--warm); outline:3px solid #f4a26144; }
+  .stage-dot.cur { color:var(--ink); font-weight:600; }
+  .bar-row { display:flex; align-items:center; gap:8px; margin:6px 0; font-size:12px; }
+  .bar-row .name { width:64px; color:var(--sub); }
+  .bar { flex:1; height:8px; background:var(--soft); border-radius:6px; overflow:hidden; }
+  .bar i { display:block; height:100%; background:var(--accent); border-radius:6px; transition:width .4s; }
+  .bar i.full { background:var(--good); }
+  .bar-row .val { width:70px; text-align:right; color:var(--sub); }
+  .bignum { display:flex; gap:18px; margin-bottom:10px; }
+  .bignum div { text-align:center; }
+  .bignum b { font-size:26px; display:block; }
+  .bignum span { font-size:11px; color:var(--sub); }
+  .counters { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; font-size:12px; color:var(--sub); }
+  .counters b { color:var(--ink); }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { background:var(--soft); border-radius:999px; padding:3px 10px; font-size:12px; }
+  .chip.joke { background:#fdebd2; }
+  .chip.avoid { background:#fbdcd6; }
+  ul.plain { list-style:none; font-size:13px; }
+  ul.plain li { padding:5px 0; border-bottom:1px dashed var(--soft); }
+  .p-kept::before { content:"✓ "; color:var(--good); }
+  .p-missed::before { content:"✗ "; color:var(--bad); }
+  .p-open::before { content:"⏳ "; }
+  .mem { font-size:12.5px; margin:6px 0; }
+  .mem .bar { height:5px; margin-top:3px; }
+  .mem .bar i { background:var(--warm); }
+  .sealed { margin-top:10px; padding:8px 10px; background:#f2f0fa; border-radius:10px; font-size:12px; color:#6f6a8a; }
+  .rupture { color:var(--bad); font-size:12px; margin-top:6px; }
+  textarea { width:100%; border:1px solid var(--soft); border-radius:10px; padding:8px; font-size:13px; resize:vertical; min-height:40px; }
+  button { margin-top:8px; background:var(--warm); border:none; color:#fff; border-radius:10px; padding:8px 16px; font-size:13px; cursor:pointer; }
+  pre { background:#faf8f4; border:1px solid var(--soft); border-radius:10px; padding:10px; font-size:11.5px;
+        white-space:pre-wrap; max-height:340px; overflow:auto; margin-top:10px; color:#5a544d; }
+  .tag { font-size:11px; background:var(--soft); border-radius:6px; padding:2px 6px; margin-left:6px; color:var(--sub); }
+  footer { margin-top:18px; color:var(--sub); font-size:11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🐾 relationshape 养成面板<small>关系是长出来的，这里看得见</small></h1>
+  <select id="userSel"></select>
+  <span class="badge" id="stageBadge">—</span>
+  <span class="meta" id="metaLine">—</span>
+</header>
+
+<div class="grid">
+  <div class="card" style="grid-column:1/-1">
+    <h2>养成进度 · 距下一阶段</h2>
+    <div class="stages" id="stagePath"></div>
+    <div id="gateBars"></div>
+    <div class="rupture" id="ruptureNote"></div>
+  </div>
+
+  <div class="card">
+    <h2>信任与亲密</h2>
+    <div class="bignum">
+      <div><b id="trust">—</b><span>信任</span></div>
+      <div><b id="closeness">—</b><span>亲密</span></div>
+      <div><b id="moodWord">—</b><span>此刻心境</span></div>
+    </div>
+    <div id="moodBars"></div>
+    <div class="counters" id="ledgerCounters"></div>
+  </div>
+
+  <div class="card">
+    <h2>承诺账本 · 说到做到</h2>
+    <ul class="plain" id="promises"></ul>
+  </div>
+
+  <div class="card">
+    <h2>我们的文化</h2>
+    <div id="cultureBox"></div>
+  </div>
+
+  <div class="card">
+    <h2>记忆 · 强度随遗忘曲线衰减</h2>
+    <div id="memList"></div>
+    <div style="margin-top:8px" class="chips" id="prefChips"></div>
+    <div class="sealed" id="sealedNote"></div>
+  </div>
+
+  <div class="card">
+    <h2>人格磨合 · 只动表达层，不动内核</h2>
+    <div id="adaptBars"></div>
+    <div style="margin-top:10px"><b style="font-size:12px;color:var(--sub)">它说过的自己（自述账本，防人设矛盾）</b>
+      <div class="chips" id="claimChips" style="margin-top:6px"></div></div>
+    <ul class="plain" id="lessons"></ul>
+  </div>
+
+  <div class="card" style="grid-column:1/-1">
+    <h2>指令试驾 · 输入一句话，看引擎此刻会怎么派戏（干跑，不影响真实状态）</h2>
+    <textarea id="probeText" placeholder="例如：我今天有点难过 / 你爱我吗 / 同桌抢我橡皮"></textarea>
+    <button onclick="preview()">看本轮指令</button>
+    <pre id="previewOut" style="display:none"></pre>
+  </div>
+</div>
+<footer>纯本地调试面板 · 封存区内容永不展示 · 数据来自引擎状态文件，每 5 秒刷新</footer>
+
+<script>
+const STAGES = ["陌生","相识","熟悉","同伴","知己"];
+let user = null;
+
+async function j(url, opt) { const r = await fetch(url, opt); return r.json(); }
+
+function bar(name, pct, valText, full) {
+  return `<div class="bar-row"><span class="name">${name}</span>
+    <span class="bar"><i class="${full?'full':''}" style="width:${pct}%"></i></span>
+    <span class="val">${valText}</span></div>`;
+}
+
+async function loadUsers() {
+  const users = await j('/api/users');
+  const sel = document.getElementById('userSel');
+  sel.innerHTML = users.map(u=>`<option>${u}</option>`).join('') || '<option>（暂无用户）</option>';
+  if (users.length) { user = users[0]; sel.value = user; }
+  sel.onchange = () => { user = sel.value; refresh(); };
+}
+
+async function refresh() {
+  if (!user) return;
+  const s = await j('/api/state/' + encodeURIComponent(user));
+  if (s.error) return;
+  document.getElementById('stageBadge').textContent = s.stage_label.split('（')[0];
+  document.getElementById('metaLine').textContent =
+    `${s.character} ✕ ${s.memory.user_name || s.user_id} · 认识 ${s.days_known} 天 · 见面 ${s.sessions} 次` +
+    (s.milestones.length ? ` · 已庆祝里程碑：${s.milestones.join('/')}天` : '');
+
+  document.getElementById('stagePath').innerHTML = STAGES.map((n,i)=>
+    `<div class="stage-dot ${i<s.stage_index?'done':i===s.stage_index?'cur':''}"><div class="dot"></div>${n}</div>`).join('');
+
+  const g = s.gate;
+  document.getElementById('gateBars').innerHTML = g.next_stage
+    ? `<div class="meta" style="margin-bottom:6px">下一站：${g.next_stage}</div>` +
+      g.items.map(it=>bar(it.name, it.pct, `${it.cur}/${it.need}`, it.pct>=100)).join('')
+    : '<div class="meta">已抵达最高阶段——剩下的路叫日常。</div>';
+  document.getElementById('ruptureNote').textContent =
+    g.rupture_block ? '⚠ 有未修复的裂痕，晋升暂停——和好之后才继续生长' : '';
+
+  document.getElementById('trust').textContent = s.ledger.trust;
+  document.getElementById('closeness').textContent = s.ledger.closeness;
+  document.getElementById('moodWord').textContent = s.mood.word;
+  const pads = [["愉悦",s.mood.p],["唤起",s.mood.a],["底气",s.mood.d]];
+  document.getElementById('moodBars').innerHTML =
+    pads.map(([n,v])=>bar(n, Math.round((v+1)*50), v.toFixed(2), false)).join('');
+  const L = s.ledger;
+  document.getElementById('ledgerCounters').innerHTML =
+    `<div>实质对话 <b>${L.substantive}</b></div><div>自我表露 <b>${L.disclosures}</b></div>
+     <div>深度表露 <b>${L.deep}</b></div><div>守约/失约 <b>${L.promises_kept}/${L.promises_broken}</b></div>
+     <div>裂痕未修 <b>${L.ruptures_open}</b></div><div>裂痕已修 <b>${L.repaired}</b></div>`;
+
+  document.getElementById('promises').innerHTML = s.promises.length
+    ? s.promises.map(p=>`<li class="p-${p.status}">${p.text}</li>`).join('')
+    : '<li class="meta">还没有承诺——许诺要慎重，兑现是信任的第一来源。</li>';
+
+  const c = s.culture;
+  document.getElementById('cultureBox').innerHTML =
+    (c.address?`<div style="font-size:13px;margin-bottom:8px">专属称呼：<b>「${c.address}」</b></div>`:'') +
+    `<div class="chips">${c.jokes.map(x=>`<span class="chip joke">😄 ${x}</span>`).join('')||'<span class="meta">内部梗会从一起笑过的瞬间里长出来</span>'}</div>`;
+  document.getElementById('lessons').innerHTML =
+    c.lessons.map(x=>`<li>📝 ${x}</li>`).join('');
+  document.getElementById('claimChips').innerHTML =
+    c.claims.map(x=>`<span class="chip">${x}</span>`).join('') || '<span class="meta">（暂无）</span>';
+
+  document.getElementById('memList').innerHTML = s.memory.episodes.map(m=>
+    `<div class="mem">${m.text}<span class="tag">${m.days}天前${m.recalls?` · 想起过${m.recalls}次`:''}${m.vulnerable?' · 🔒秘密级':''}</span>
+     <div class="bar"><i style="width:${Math.round(m.strength*100)}%"></i></div></div>`).join('')
+    || '<div class="meta">还没有共同记忆</div>';
+  document.getElementById('prefChips').innerHTML =
+    s.memory.preferences.map(x=>`<span class="chip">❤ ${x}</span>`).join('') +
+    s.memory.aversions.map(x=>`<span class="chip avoid">✋ ${x}</span>`).join('') +
+    s.memory.people.map(p=>`<span class="chip">👤 ${p.name}</span>`).join('');
+  document.getElementById('sealedNote').textContent =
+    `🔒 封存区：${s.memory.sealed_count} 条（危机相关内容，永不召回、永不展示）`;
+
+  const a = s.adaptation;
+  const humorZh = {affiliative:"亲和玩笑", self_enhancing:"自嘲", callback:"内部梗", wordplay:"谐音梗", playful_tease:"打趣"};
+  document.getElementById('adaptBars').innerHTML =
+    bar("正式度", a.formality*100, a.formality, false) +
+    bar("能量", a.energy*100, a.energy, false) +
+    Object.entries(a.humor).map(([k,v])=>bar(humorZh[k]||k, v*100, v, v>=0.62)).join('');
+}
+
+async function preview() {
+  const text = document.getElementById('probeText').value.trim();
+  if (!text || !user) return;
+  const out = document.getElementById('previewOut');
+  out.style.display = 'block';
+  out.textContent = '…';
+  const r = await j('/api/preview', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({user_id:user, text})});
+  out.textContent = r.error ? ('出错：'+r.error)
+    : `识别：${r.input_type} · 角色情绪：${r.emotion} · 动作：${r.acts.join('→')}`
+      + `${r.humor?' · 含幽默':''}${r.reward?' · 奖励:'+r.reward:''}${r.safety?' · ⚠安全接管':''}\n\n${r.prompt_context}`;
+}
+
+loadUsers().then(refresh);
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
