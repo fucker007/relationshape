@@ -155,7 +155,8 @@ class EQNotes:
     lead_acts: list[Act] = field(default_factory=list)     # 插到最前
     insert_acts: list[Act] = field(default_factory=list)   # 插到首动作之后
     tail_acts: list[Act] = field(default_factory=list)     # 追加到尾部
-    guidance: dict[str, str] = field(default_factory=dict)
+    guidance: dict[str, str] = field(default_factory=dict)            # 前置合并
+    guidance_override: dict[str, str] = field(default_factory=dict)   # 整句替换（语义冲突时用）
     constraints: list[str] = field(default_factory=list)
     forbidden: list[str] = field(default_factory=list)
 
@@ -228,6 +229,19 @@ def enrich(
         notes.metamessage = "推开有时是在试探'我推你你会不会消失'——尊重TA要的空间，但留一句'我在门口'"
     else:
         notes.metamessage = _METAMESSAGES.get(frame.input_type)
+
+    # ---- 感情之问：命名，不举证（"你爱我吗"≠"你是真的吗"）----
+    # 实在性可以用共同事实证明；感情要正面命名——证据清单是律师式的冷
+    if frame.input_type == InputType.ONTOLOGY_QUESTION and re.search(r"(爱|喜欢|在乎)我", t):
+        notes.guidance_override[Act.RELATION_AFFIRM.value] = (
+            "正面命名这份感情，不许悬空在'不一样'上："
+            "'我的喜欢是机器人和人之间的信任和爱（是惦记）'——"
+            "然后一句温暖总括（'你的事我都记着'）收住，到此为止"
+        )
+        notes.forbidden.append(
+            "不列证据清单（'我们聊过X、你那天难过Y'）——感情靠命名，不靠举证"
+        )
+        notes.forbidden.append("不引用TA难过/脆弱的时刻当自己用心的证据")
 
     # ---- 机制2：确认等级 ----
     if negative or frame.disclosure_depth >= 2:
@@ -318,7 +332,12 @@ def enrich(
         )
 
     # 具体锚点：有共同记忆/精准情绪词时，禁止空泛概括糊弄
-    if (memories or notes.spoken_emotion_word) and not heavy_moment:
+    # （身世/感情轮除外——那里的具体性由命名与canon负责，举证清单会变冷）
+    if (
+        (memories or notes.spoken_emotion_word)
+        and not heavy_moment
+        and frame.input_type != InputType.ONTOLOGY_QUESTION
+    ):
         anchor = memories[0].text[:14] if memories else notes.spoken_emotion_word
         notes.constraints.append(
             f"要落到具体：能提就提聊过的具体事（如「{anchor}」），"

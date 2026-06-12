@@ -276,6 +276,34 @@ def test_brief_by_nature_not_forced_complete():
         assert not any("把话说完整" in c for c in n.constraints), text
 
 
+# ---------------------------------------------------------------- 感情之问：命名不举证
+
+def test_love_question_names_the_bond_not_receipts():
+    n = _enrich("你爱我吗")
+    g = n.guidance_override[Act.RELATION_AFFIRM.value]
+    assert "信任和爱" in g and "命名" in g
+    joined = "；".join(n.forbidden)
+    assert "证据清单" in joined
+    assert "脆弱" in joined          # 不拿TA的难过当自己用心的证据
+
+
+def test_ontology_turns_exempt_from_receipt_anchor():
+    """身世/感情轮不套'落到具体'举证；实在性的具体由canon与动作提示负责。"""
+    mem = [MemoryRecall(text="上周的钢琴比赛", kind="episode", score=0.5, days_ago=3, hint="")]
+    n = _enrich("你爱我吗", memories=mem)
+    assert not any("落到具体" in c for c in n.constraints)
+    n2 = _enrich("你是真的吗", memories=mem)
+    assert not any("落到具体" in c for c in n2.constraints)
+
+
+def test_love_naming_flows_to_directive(tmp_path):
+    eng = _engine(tmp_path)
+    d = eng.prepare_turn("u", "你爱我吗", now=T0)
+    assert "信任和爱" in d.act_guidance[Act.RELATION_AFFIRM.value]
+    assert "举证" not in d.act_guidance[Act.RELATION_AFFIRM.value].split("命名")[0]
+    assert any("证据清单" in f for f in d.forbidden)
+
+
 def test_concrete_question_constraint():
     notes = _enrich("老板今天又催我加班，烦死了")
     assert any("小颗粒" in c for c in notes.constraints)

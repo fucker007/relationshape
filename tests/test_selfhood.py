@@ -49,6 +49,7 @@ def test_identity_has_ontology_layer():
     joined = "；".join(identity.self_canon)
     assert "关机不是死掉" in joined                      # 不许诺永恒，但回答死亡恐惧
     assert "抱抱我可给不了" in joined                    # 不贬低人类关系
+    assert "信任和爱" in joined                          # 感情有正面命名，不悬空于"不一样"
 
 
 def test_identity_line_rendered_every_turn(tmp_path):

@@ -186,6 +186,8 @@ class CompanionEngine:
             constraints.append("这一轮不接旧话题线头、不开新话题——先把'没事'背后的人接住")
         for k, v in eq_notes.guidance.items():
             guide[k] = v if k not in guide else f"{v}；{guide[k]}"
+        for k, v in eq_notes.guidance_override.items():
+            guide[k] = v   # 语义冲突时整句替换（如感情之问：命名替代举证）
         for c in eq_notes.constraints:
             if c not in constraints:
                 constraints.append(c)
