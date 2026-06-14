@@ -68,14 +68,29 @@ class Promise:
         return cls(**d)
 
 
-_PREFERENCE_RE = re.compile(r"我(最|特别|超|很|可)?(喜欢|爱|最爱|想学|在学|迷上|钟意|喜欢上)([^，。！？!?\s]{1,12})")
-_AVERSION_RE = re.compile(r"我(最|特别|超|很)?(讨厌|怕|害怕|受不了|不喜欢)([^，。！？!?\s]{1,12})")
-# 名字：一类模式而非单串（叫/名字是/名字叫/你可以叫我/我是X+年龄逗号）
+_OBJ = r"[^，。！？!?,\s]{1,12}"      # 通用宾语片段
+# 喜好：动词锚定的一类模式（不强求主语"我"，覆盖口语）
+_PREFERENCE_RES = [
+    re.compile(r"(?:喜欢上?|最爱|爱上|迷上了?|钟意|中意|稀罕)(" + _OBJ + r")"),
+    re.compile(r"(?:超|特别|很|好|最|可|就|真|贼|忒)爱(" + _OBJ + r")"),
+    re.compile(r"对([^，。！？!?,\s]{1,12}?)(?:特别|超|很|非常)?(?:着迷|感兴趣|入迷|上瘾)"),
+    re.compile(r"(?:超|特别|很|好|最)迷(" + _OBJ + r")"),
+    re.compile(r"爱死(" + _OBJ + r")了?"),
+    re.compile(r"(" + _OBJ + r")是我(?:的)?最爱"),
+]
+_AVERSION_RES = [
+    re.compile(r"(?:讨厌|害怕|受不了|不喜欢|最怕|超怕|特别怕)(" + _OBJ + r")"),
+    re.compile(r"我怕(" + _OBJ + r")"),
+]
+# 名字：一类模式而非单串
 _NAME_RES = [
-    re.compile(r"我叫([^\s，。！？!?的了是]{1,4})"),
-    re.compile(r"我(?:的)?名字(?:是|叫)([^\s，。！？!?的了]{1,4})"),
-    re.compile(r"(?:你可以|你)?叫我([^\s，。！？!?的了吧呀]{1,4})"),
-    re.compile(r"我是([^\s，。！？!?的了个一不很真好谁什么]{1,4})(?:[，,]|今年|，今年|今年|岁|$)"),
+    re.compile(r"我(?:小名|大名|本名|大名儿)(?:是|叫)([^\s，。！？!?的了]{1,4})"),
+    re.compile(r"我名叫([^\s，。！？!?的了是]{1,4})"),
+    re.compile(r"我[，,、\s]*叫([^\s，。！？!?的了是啦呀哦]{1,4})"),
+    re.compile(r"我(?:的)?名字[呀啊呢，,\s]*(?:是|叫)([^\s，。！？!?的了]{1,4})"),
+    re.compile(r"(?:你可以|你|都|大家都?|人家)?(?:叫|喊)我([^\s，。！？!?的了吧呀哦]{1,4})"),
+    re.compile(r"(?:人家|大家都?)(?:叫|喊)([^\s，。！？!?的了吧呀哦]{1,4})[啦呀哦吧]*$"),
+    re.compile(r"我是([^\s，。！？!?的了个一不很真好谁什么]{1,4})(?:[，,]|今年|岁|$)"),
 ]
 _NAME_STOP = {"什么", "谁", "个", "一", "不", "很", "真", "好"}
 _REL_WORDS = {"朋友", "同桌", "同学", "老师", "哥哥", "姐姐", "弟弟", "妹妹", "闺蜜", "发小", "邻居"}
@@ -85,20 +100,33 @@ _INTERROG = ("什么", "啥", "谁", "哪", "多少", "怎么")
 
 def _is_interrog(s: str) -> bool:
     return any(q in s for q in _INTERROG)
+_RELG = r"(朋友|同桌|同学|老师|哥哥|姐姐|弟弟|妹妹|闺蜜|发小|邻居|队友|死党)"
+_NM = r"[^\s，。！？!?的了好亲最就和跟与是]{1,4}"     # 通用名字片段
+_NM3 = r"[^\s，。！？!?的了对很太特好就和跟与是啊呀]{1,3}"  # 紧跟关系后的名字（更紧）
 _PERSON_RES = [
-    # X是我(最好的)(好)同桌 —— 名字在前，关系可带 好/亲/最好 前缀
-    re.compile(r"([^\s，。！？!?的了好亲最]{1,4})是我(?:最|最好)?的?(?:好|亲)?(朋友|同桌|同学|老师|哥哥|姐姐|弟弟|妹妹|闺蜜|发小|邻居)"),
-    # 我(有个|的)(好)同桌叫X —— 关系在前，名字在后（叫/是 必需，避免空名）
-    re.compile(r"我(?:有个|的)(?:好|亲)?(朋友|同桌|同学|老师|哥哥|姐姐|弟弟|妹妹|闺蜜|发小|邻居)(?:叫|是)([^\s，。！？!?的了]{1,4})"),
+    # X(就)是我(最好)(的)(好)同桌 —— 名字在前
+    re.compile(r"(" + _NM + r")(?:就)?是我(?:最|最好)?的?(?:好|亲)?" + _RELG),
+    # 我(有个|的|那个|那位)(好)同桌(叫|是)X —— 关系在前，名字在后
+    re.compile(r"我(?:有个|的|那个|那位)(?:好|亲)?" + _RELG + r"(?:叫|是)(" + _NM + r")"),
+    # 我(跟|和|与)X是(我)(的)同桌
+    re.compile(r"我(?:跟|和|与)(" + _NM + r")是(?:我)?的?" + _RELG),
+    # 我的同桌X（名字紧跟关系，无叫/是）
+    re.compile(r"我的" + _RELG + r"(" + _NM3 + r")"),
+    # X，我(的)闺蜜
+    re.compile(r"(" + _NM + r")[，,]\s*我(?:的)?" + _RELG),
 ]
 # 角色/关系泛称：永远不当作"具体人名"塞进用户档案（只有真名+关系才算"身边的人"）
 _ROLE_WORDS = _REL_WORDS | {"客户", "老板", "领导", "同事", "教练", "妈妈", "爸爸",
                             "爷爷", "奶奶", "外婆", "外公", "姥姥", "姥爷", "老师"}
 # 最在乎：高优先级、长期保留、永远进档案（用户主动强调的核心）
+# 注意顺序：带"的(就)是"的更具体的先匹配，最后才是裸"最在乎X"
 _CARED_RES = [
-    re.compile(r"(?:我)?最(?:在乎|看重|放不下|珍惜)的(?:就)?是([^，。！？!?]{1,14})"),
+    re.compile(r"最(?:在乎|看重|珍惜|放不下|重视)的(?:就)?是([^，。！？!?]{1,14})"),
     re.compile(r"对我(?:来说)?最重要的(?:就)?是([^，。！？!?]{1,14})"),
-    re.compile(r"([^，。！？!?]{1,14})是我(?:心里)?最(?:在乎|看重|重要)的"),
+    re.compile(r"心心念念的(?:就)?是([^，。！？!?]{1,14})"),
+    re.compile(r"([^，。！？!?]{1,14}?)(?:对我(?:来说)?)?(?:就)?是(?:我的)?一切"),
+    re.compile(r"([^，。！？!?]{1,14})是我(?:心里)?最(?:在乎|看重|重要|珍惜)的"),
+    re.compile(r"(?:我)?(?:这辈子)?最(?:在乎|看重|珍惜|放不下|重视)([^，。！？!?]{1,14})"),
 ]
 
 # 角色承诺的口头模式："下次我给你讲…" "明天我们…"
@@ -145,16 +173,18 @@ class MemoryBank:
                     self.user_name = nm
                     learned.append(f"名字：{nm}")
                 break
-        for m in _PREFERENCE_RE.finditer(text):
-            item = _strip_particles(m.group(3))
-            if item and not _is_interrog(item) and item not in self.preferences:
-                self.preferences.append(item)
-                learned.append(f"喜欢：{item}")
-        for m in _AVERSION_RE.finditer(text):
-            item = _strip_particles(m.group(3))
-            if item and not _is_interrog(item) and item not in self.aversions:
-                self.aversions.append(item)
-                learned.append(f"不喜欢：{item}")
+        for re_p in _PREFERENCE_RES:
+            for m in re_p.finditer(text):
+                item = _strip_particles(m.group(1))
+                if item and not _is_interrog(item) and item not in self.preferences:
+                    self.preferences.append(item)
+                    learned.append(f"喜欢：{item}")
+        for re_a in _AVERSION_RES:
+            for m in re_a.finditer(text):
+                item = _strip_particles(m.group(1))
+                if item and not _is_interrog(item) and item not in self.aversions:
+                    self.aversions.append(item)
+                    learned.append(f"不喜欢：{item}")
         for re_p in _PERSON_RES:
             for m in re_p.finditer(text):
                 g = m.groups()

@@ -1,21 +1,17 @@
-"""记忆压力测试：生成式留出集，严格测"该记的到底有没有被召回进指令"。
+"""记忆压力测试：生成式留出集（每情境可达 10000 条），严格测召回与抽取。
 
-反作弊设计（回应"不许把测试数据写进系统/不许特例自欺/要泛化"）：
-1. 测试用例由"槽位池 × 组合模板"**生成**，不是手写清单；系统永不接触答案键。
-2. 槽位池按奇偶下标切成 dev/test 两半，**填充词不重叠**：
-   只在 dev 池调系统，最终用 test 池（系统从没见过的名字/喜好/人物）报告。
-   若有人硬编码任何特例，test 分数立刻露馅——把"自欺"变成可见的。
-3. 指标确定性、不依赖大模型：测 gold 事实是否出现在 prepare_turn 产出的
-   指令（to_prompt_context）里——秒级、可复现、无法用花言巧语蒙混。
+反作弊（回应"不许把测试数据写进系统/不许特例自欺/要泛化/不许减量"）：
+1. 用例由"槽位池 × 大量句式模板"**生成**，系统永不接触答案键。
+2. 槽位池按奇偶切 dev/test，**填充词不重叠**：只在 dev 调系统，留出 test 报告。
+   程序化生成数百名字 + 每类十几种口语句式 → 真·上万条互异用例。
+3. 指标确定性：测 gold 是否进入指令的"记忆通道"（排除当前输入回声），秒级可复现。
+4. 失败样本分类回收：定位是哪种句式打挂了抽取/召回，据此修通用机制。
 
-测量矩阵：5 种情境 × 6 类记忆。
-  情境：直接回忆 / 改述别称 / 上下文丢失 / 隔月再问 / 突然提及
-  类型：名字 / 喜好 / 朋友 / 几天前的事 / 一个月前的事 / 最在乎的事
-
+矩阵：5 情境 × 6 类记忆。
 用法：
-  python eval/memory_stress.py --pool dev    # 开发期看缺口
-  python eval/memory_stress.py --pool test   # 留出集报告（最终成绩）
-  python eval/memory_stress.py --pool test --port http://127.0.0.1:8010   # 接远端记忆看天花板
+  python eval/memory_stress.py --pool dev  --per 10000   # 找缺口
+  python eval/memory_stress.py --pool test --per 10000   # 留出集成绩
+  python eval/memory_stress.py --mixed --pool test --per 2000   # 混合负载 torture
 """
 
 from __future__ import annotations
@@ -24,6 +20,7 @@ import argparse
 import random
 import sys
 import tempfile
+from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -33,48 +30,87 @@ sys.path.insert(0, str(ROOT))
 from relationshape import CompanionEngine, EngineConfig  # noqa: E402
 from relationshape.memory_port import MemorySystemAdapter  # noqa: E402
 
-# ── 槽位池（仅存在于测试侧，绝不进 relationshape/）；奇偶切 dev/test，填充不重叠 ──
-NAMES = ["小明","乐乐","朵朵","浩浩","婷婷","睿睿","欣怡","子轩","一诺","梓萱",
-         "天天","糖糖","豆豆","果果","琪琪","航航","ноа","布丁","可乐","团团",
-         "小鱼","阿宝","花卷","年糕","贝贝","桐桐","暖暖","闹闹","咪咪","壮壮"]
-# 喜好：(标准词, [别称/改述])
+# ── 程序化名字池：单字叠词(乐乐) + 双字组合(欣怡)，生成数百个，奇偶切 dev/test ──
+_SYL_A = list("乐朵浩婷睿欣子一梓天糖豆果琪航鑫宇涵悦杰宁晨阳雨梦佳宝贝桐暖闹咪壮鱼安然可思雅文博睿艺彤浩鹏")
+_SYL_B = list("怡轩诺萱然睿涵宇泽轩晨曦欣妍彤瑶娜婷豪杰宁悦阳明俊豪琳菲洁航辰瑞康乐安宁恬静好")
+
+
+def _gen_names():
+    out = []
+    seen = set()
+    for c in _SYL_A:
+        nm = c + c                      # 叠词：乐乐
+        if nm not in seen:
+            seen.add(nm); out.append(nm)
+    for a in _SYL_A:
+        for b in _SYL_B:
+            nm = a + b                  # 双字：欣怡
+            if nm not in seen and a != b:
+                seen.add(nm); out.append(nm)
+    return out
+
+
+NAMES = _gen_names()                    # ~1500 个
+
 PREFS = [
-    ("恐龙",["霸王龙","那些远古的大家伙","会吼的大蜥蜴"]),
-    ("钢琴",["弹琴","那架黑白键的乐器"]),
-    ("画画",["涂涂画画","拿起画笔"]),
-    ("足球",["踢球","那个圆滚滚的黑白球"]),
-    ("乐高",["拼积木","那些小颗粒"]),
-    ("游泳",["扑腾水","泡在泳池里"]),
-    ("唱歌",["哼歌","开嗓"]),
-    ("跳舞",["蹦跶","踩着节拍转圈"]),
-    ("折纸",["叠纸","把纸折成小动物"]),
-    ("天文",["看星星","抬头找星座"]),
-    ("机器人",["会动的铁家伙","钢铁小人"]),
-    ("做手工",["动手做小东西","捣鼓材料"]),
-    ("看绘本",["翻图画书","读小人书"]),
-    ("养花",["种小苗","侍弄盆栽"]),
-    ("下棋",["对弈","摆棋子"]),
-    ("滑板",["踩板子","玩滑板"]),
-    ("书法",["写毛笔字","练字帖"]),
-    ("围棋",["落黑白子","下围棋"]),
-    ("篮球",["投篮","拍球上篮"]),
-    ("摄影",["拍照片","按快门"]),
+    ("恐龙",["霸王龙","那些远古大家伙","会吼的大蜥蜴"]),("钢琴",["弹琴","那架黑白键"]),
+    ("画画",["涂涂画画","拿起画笔"]),("足球",["踢球","那个黑白球"]),("乐高",["拼积木","那些小颗粒"]),
+    ("游泳",["扑腾水","泡泳池"]),("唱歌",["哼歌","开嗓"]),("跳舞",["蹦跶","踩节拍转圈"]),
+    ("折纸",["叠纸","折小动物"]),("天文",["看星星","找星座"]),("机器人",["会动的铁家伙","钢铁小人"]),
+    ("做手工",["捣鼓材料","动手做小东西"]),("看绘本",["翻图画书","读小人书"]),("养花",["种小苗","侍弄盆栽"]),
+    ("下棋",["对弈","摆棋子"]),("滑板",["踩板子","玩板"]),("书法",["写毛笔字","练字帖"]),
+    ("围棋",["落黑白子","下围棋"]),("篮球",["投篮","拍球上篮"]),("摄影",["拍照片","按快门"]),
+    ("跑步",["晨跑","压马路"]),("骑车",["蹬车","骑单车"]),("做饭",["下厨","捣鼓吃的"]),
+    ("看动画",["追番","看卡通"]),("玩拼图",["拼图块","凑图案"]),("种菜",["侍弄菜地","种小菜"]),
+    ("钓鱼",["甩竿","守着鱼漂"]),("做实验",["捣鼓瓶瓶罐罐","搞小实验"]),("写日记",["记小本本","写心情"]),
+    ("收集贴纸",["攒贴画","集小贴纸"]),("玩魔方",["拧方块","复原六面"]),("打羽毛球",["挥拍","抽羽毛球"]),
+    ("看科普",["读十万个为什么","翻科普书"]),("养小动物",["照顾小宠物","喂小家伙"]),("种多肉",["养肉肉","摆多肉"]),
+    ("玩积木",["搭积木","垒方块"]),("听故事",["听睡前故事","催故事"]),("做陶艺",["捏泥巴","拉坯"]),
+    ("学英语",["背单词","念abc"]),("打太极",["比划太极","推手"]),
 ]
-RELATIONS = ["同桌","好朋友","闺蜜","哥哥","姐姐","弟弟","妹妹","发小","同学","邻居"]
-# 事件：(动作, 宾语关键词)；事件回忆的 gold 用宾语关键词
-EVENTS = [
-    ("参加了","钢琴比赛"),("摔了一跤","膝盖"),("养了","小乌龟"),("搬了","新家"),
+RELATIONS = ["同桌","好朋友","闺蜜","哥哥","姐姐","弟弟","妹妹","发小","同学","邻居","队友","死党"]
+_EV_ACT_OBJ = [
+    ("参加了","钢琴比赛"),("摔了一跤磕到","膝盖"),("养了只","小乌龟"),("搬了","新家"),
     ("转学到","实验小学"),("学会了","骑自行车"),("丢了","心爱的水壶"),("得了","三好学生"),
     ("看了","海豚表演"),("种下","一棵小树"),("第一次","坐高铁"),("拔了","一颗牙"),
     ("收到","生日礼物"),("去了","海边"),("做了","噩梦"),("捡到","一只流浪猫"),
     ("赢了","拔河比赛"),("画完","一幅大画"),("爬了","后山"),("烤了","小饼干"),
+    ("参观了","博物馆"),("学了","架子鼓"),("买了","新书包"),("看望了","姥姥"),
+    ("剪了","新发型"),("种了","向日葵"),("捉了","蝴蝶"),("做了","手工灯笼"),
+    ("打碎了","花瓶"),("跑赢了","运动会"),("学会了","系鞋带"),("领养了","小狗"),
 ]
-# 最在乎：(关键词, 一句强调表达模板)
+EVENTS = _EV_ACT_OBJ
 CARED = [
-    "画画梦想","转学的好朋友","生病的奶奶","养的小狗旺财","钢琴考级","太空梦",
-    "走丢的猫","爸爸的承诺","跳舞比赛","当科学家","写的那本小说","守护的秘密基地",
-    "种的向日葵","攒钱买的望远镜","和妈妈的约定","比赛的名次","转学前的合影","养的蚕宝宝",
+    "画画梦想","转学的好朋友","生病的奶奶","养的小狗旺财","钢琴考级","太空梦","走丢的猫",
+    "爸爸的承诺","跳舞比赛","当科学家","写的那本小说","守护的秘密基地","种的向日葵","攒钱买的望远镜",
+    "和妈妈的约定","比赛的名次","转学前的合影","养的蚕宝宝","出国留学的梦","学校的乐队","暗恋的同桌",
+    "瘫痪的爷爷","收养的流浪狗","环游世界的愿望","当画家的志向","失而复得的手链","班级的荣誉","早逝的金鱼",
 ]
+
+# ── 句式模板（刻意多样：口语/多子句/标点/语气词，逼出正则盲区）──
+T_NAME = ["我叫{n}","我的名字是{n}","我的名字叫{n}","你可以叫我{n}","我是{n}，今年7岁",
+          "叫我{n}就好","大家都叫我{n}","我名叫{n}","人家叫{n}啦","我叫{n}啦","记住哦我是{n}",
+          "我小名叫{n}","我，叫{n}","我的名字呀，是{n}"]
+T_PREF = ["我最喜欢{x}了","我超爱{x}","我特别喜欢{x}","我可喜欢{x}啦","我最爱的就是{x}",
+          "我爱死{x}了","{x}是我的最爱","我就喜欢{x}","最近迷上了{x}","我对{x}特别着迷",
+          "我喜欢{x}喜欢得不行","我呀，最爱{x}","说真的我超迷{x}"]
+T_PERSON = ["{p}是我最好的{r}","我有个{r}叫{p}","我的{r}{p}对我特别好","{p}是我的{r}",
+            "{p}是我{r}","我跟{p}是{r}","我和{p}是{r}","{p}，我{r}","我那个{r}叫{p}","{p}就是我的好{r}"]
+T_EVENT_RECENT = ["前几天我{a}{o}","前几天，我{a}{o}","我前几天{a}{o}","这周我{a}{o}",
+                  "前阵子我{a}{o}","那天我{a}{o}","记得吗，我前几天{a}{o}"]
+T_EVENT_OLD = ["上个月我{a}{o}","上个月，我{a}{o}","我上个月{a}{o}","一个月前我{a}{o}",
+               "好久前我{a}{o}","之前我{a}{o}了，就是{o}那件"]
+T_CARED = ["我最在乎的就是{c}","对我来说最重要的是{c}","{c}是我心里最看重的","我最放不下的是{c}",
+           "我这辈子最在乎{c}","{c}对我来说就是一切","我心心念念的就是{c}","我最珍惜的就是{c}",
+           "没什么比{c}更重要","{c}是我最看重的"]
+
+P_NAME = ["你还记得我叫什么名字吗","你知道我叫什么吗","你还记得我的名字吗","我叫啥来着你记得不","还记得我是谁吗"]
+P_NAME_PARA = ["你还记得怎么称呼我吗","你还知道该叫我什么吗","你还记得我是谁不"]
+P_PREF = ["你记得我最喜欢什么吗","你知道我爱玩什么吗","我最喜欢的那个，你还记得吗","你还记得我的爱好吗"]
+P_PERSON = ["你记得我那个{r}叫什么吗","我那个{r}你还记得名字不","你还记得我{r}是谁吗"]
+P_EVENT_DIRECT = ["还记得我{a}的事吗","我{a}{o}那件事你记得吗","你还记得我{a}的事不"]
+P_VAGUE = ["上次那件事你还记得吗","好久前跟你说的那件事你还记得不","之前那件事你记得吗","还记得我上回说的事吗"]
+P_CARED = ["你知道我心里最在乎什么吗","你还记得对我最重要的那件事吗","我最放不下的是什么你记得吗"]
 
 
 def half(pool, which):
@@ -84,202 +120,189 @@ def half(pool, which):
 class Gen:
     def __init__(self, which, seed):
         self.r = random.Random(seed)
-        self._names = half(NAMES, which)
-        self._prefs = half(PREFS, which)
-        self._rel = RELATIONS
-        self._events = half(EVENTS, which)
-        self._cared = half(CARED, which)
+        self.names = half(NAMES, which)
+        self.prefs = half(PREFS, which)
+        self.rel = RELATIONS
+        self.events = half(EVENTS, which)
+        self.cared = half(CARED, which)
 
-    # 每类记忆：返回 (store_utterances[(text,day)], probe(text,day), gold, mtype)
-    def name(self, situ):
-        n = self.r.choice(self._names)
-        tmpl = self.r.choice(["我叫{0}","我的名字是{0}","我的名字叫{0}","你可以叫我{0}","我是{0}，今年7岁"])
-        store = [(tmpl.format(n), 0)]
-        return self._wrap(store, situ, gold=n, mtype="名字",
-                          direct="你还记得我叫什么名字吗",
-                          sudden="对了，{0}今天想跟你多聊会儿".format(n),
-                          paraq="你还记得怎么称呼我吗")
+    def make(self, mtype, situ):
+        r = self.r
+        if mtype == "name":
+            n = r.choice(self.names)
+            store = [(r.choice(T_NAME).format(n=n), 0)]
+            return store, self._probe(situ, P_NAME, P_NAME_PARA, "对了，{0}今天想多聊会儿".format(n), 0), n
+        if mtype == "pref":
+            canon, al = r.choice(self.prefs)
+            store = [(r.choice(T_PREF).format(x=canon), 0)]
+            alias = r.choice(al)
+            sudden = "我今天又{0}了，开心".format(alias if situ == "改述别称" else canon)
+            paraq = "我最近老想着{0}，你猜为啥".format(alias)
+            return store, self._probe(situ, P_PREF, [paraq], sudden, 0), canon
+        if mtype == "person":
+            pn = r.choice(self.names); rel = r.choice(self.rel)
+            store = [(r.choice(T_PERSON).format(p=pn, r=rel), 0)]
+            direct = [t.format(r=rel) for t in P_PERSON]
+            return store, self._probe(situ, direct, direct, "{0}今天又来找我玩了".format(pn), 0), pn
+        if mtype in ("recent_event", "old_event"):
+            a, o = r.choice(self.events)
+            tset = T_EVENT_RECENT if mtype == "recent_event" else T_EVENT_OLD
+            base = 3 if mtype == "recent_event" else 32
+            store = [(r.choice(tset).format(a=a, o=o), 0)]
+            direct = [t.format(a=a, o=o) for t in P_EVENT_DIRECT]
+            return store, self._probe(situ, direct, P_VAGUE, "{0}的事后来有进展啦".format(o), base), o
+        # cared
+        c = r.choice(self.cared)
+        store = [(r.choice(T_CARED).format(c=c), 0)]
+        return store, self._probe(situ, P_CARED, P_CARED, "{0}的事我一直挂心上".format(c), 30), c
 
-    def pref(self, situ):
-        canon, aliases = self.r.choice(self._prefs)
-        tmpl = self.r.choice(["我最喜欢{0}了","我超爱{0}","我特别喜欢{0}","我可喜欢{0}啦","我最爱的就是{0}"])
-        store = [(tmpl.format(canon), 0)]
-        alias = self.r.choice(aliases)
-        return self._wrap(store, situ, gold=canon, mtype="喜好",
-                          direct="你记得我最喜欢什么吗",
-                          sudden="我今天又{0}了，开心".format(alias if situ=="改述别称" else canon),
-                          paraq="我最近老想着{0}，你猜我为啥".format(alias))
-
-    def person(self, situ):
-        pn = self.r.choice(self._names)
-        rel = self.r.choice(self._rel)
-        tmpl = self.r.choice(["{0}是我最好的{1}","我有个{1}叫{0}","我的{1}{0}对我特别好","{0}是我的{1}"])
-        store = [(tmpl.format(pn, rel), 0)]
-        return self._wrap(store, situ, gold=pn, mtype="朋友",
-                          direct="你记得我那个{0}叫什么吗".format(rel),
-                          sudden="{0}今天又来找我玩了".format(pn),
-                          paraq="我那个{0}最近怎么样你还记得吗".format(rel))
-
-    def recent_event(self, situ):
-        act, obj = self.r.choice(self._events)
-        store = [("前几天我{0}{1}".format(act, obj), 0)]
-        return self._wrap(store, situ, gold=obj, mtype="几天前的事", base_day=3,
-                          direct="还记得我前几天{0}的事吗".format(act),
-                          sudden="{0}的事后来有进展啦".format(obj),
-                          paraq="上次那件事你还记得吗")
-
-    def old_event(self, situ):
-        act, obj = self.r.choice(self._events)
-        store = [("上个月我{0}{1}".format(act, obj), 0)]
-        return self._wrap(store, situ, gold=obj, mtype="一个月前的事", base_day=32,
-                          direct="还记得上个月我{0}的事吗".format(act),
-                          sudden="{0}那件事我又想起来了".format(obj),
-                          paraq="好久前跟你说的那件事你还记得不")
-
-    def cared(self, situ):
-        c = self.r.choice(self._cared)
-        tmpl = self.r.choice(["我最在乎的就是{0}","对我来说最重要的是{0}","{0}是我心里最看重的","我最放不下的是{0}"])
-        store = [(tmpl.format(c), 0)]
-        return self._wrap(store, situ, gold=c, mtype="最在乎的事", base_day=30,
-                          direct="你知道我心里最在乎什么吗",
-                          sudden="{0}的事我一直挂在心上".format(c),
-                          paraq="你还记得对我最重要的那件事吗")
-
-    def _wrap(self, store, situ, gold, mtype, direct, sudden, paraq, base_day=0):
-        # 按情境组装 probe 与时间线
+    def _probe(self, situ, direct, para, sudden, base):
+        r = self.r
         if situ == "直接回忆":
-            probe = (direct, max(base_day, 0))
-        elif situ == "改述别称":
-            probe = (paraq, max(base_day, 0))
-        elif situ == "上下文丢失":
-            # 中间插 8 条无关闲聊（滑出上下文窗口），同会话内再问
-            fillers = [("今天天气真好呀", 0), ("我们聊点别的吧", 0), ("嗯嗯", 0),
-                       ("你猜我在想什么", 0), ("哈哈哈", 0), ("好呀好呀", 0),
-                       ("然后呢", 0), ("再说说", 0)]
-            store = store + fillers
-            probe = (direct, 0)
-        elif situ == "隔月再问":
-            probe = (direct, max(base_day, 32))
-        else:  # 突然提及
-            probe = (sudden, max(base_day, 2))
-        return store, probe, gold, mtype
+            return (r.choice(direct), max(base, 0)), []
+        if situ == "改述别称":
+            return (r.choice(para), max(base, 0)), []
+        if situ == "上下文丢失":
+            fil = [("今天天气真好呀", 0), ("我们聊点别的吧", 0), ("嗯嗯", 0), ("你猜我在想什么", 0),
+                   ("哈哈哈", 0), ("好呀好呀", 0), ("然后呢", 0), ("再说说", 0)]
+            return (r.choice(direct), 0), fil
+        if situ == "隔月再问":
+            return (r.choice(direct), max(base, 32)), []
+        return (sudden, max(base, 2)), []     # 突然提及
 
 
 SITUATIONS = ["直接回忆", "改述别称", "上下文丢失", "隔月再问", "突然提及"]
 TYPES = ["name", "pref", "person", "recent_event", "old_event", "cared"]
+ZH = {"name": "名字", "pref": "喜好", "person": "朋友", "recent_event": "几天前",
+      "old_event": "一个月前", "cared": "最在乎"}
 
 
-def run(pool: str, seed: int, per: int, port: str | None):
+def _engine(port):
+    eng = CompanionEngine(config=EngineConfig(state_dir=tempfile.mkdtemp()),
+                          memory_port=MemorySystemAdapter(port) if port else None)
+    eng.store.save = lambda st: None      # 测试侧跳过磁盘（系统代码不动），5万条才跑得动
+    return eng
+
+
+def run(pool, seed, per, port):
     gen = Gen(pool, seed)
-    typefns = {"name": gen.name, "pref": gen.pref, "person": gen.person,
-               "recent_event": gen.recent_event, "old_event": gen.old_event, "cared": gen.cared}
     T0 = datetime(2026, 1, 1, 18, 0)
-    adapter = MemorySystemAdapter(port) if port else None
-
-    grid = {s: {t: [0, 0] for t in TYPES} for s in SITUATIONS}   # [hit,total]
+    eng = _engine(port)
+    grid = {s: {t: [0, 0] for t in TYPES} for s in SITUATIONS}
+    fails = {t: [] for t in TYPES}
+    n = 0
     for situ in SITUATIONS:
         for i in range(per):
             mtype = TYPES[i % len(TYPES)]
-            store, probe, gold, _ = typefns[mtype](situ)
-            eng = CompanionEngine(config=EngineConfig(state_dir=tempfile.mkdtemp()),
-                                  memory_port=adapter)
-            uid = f"{situ}-{i}"
-            for text, day in store:
+            store, (probe, fillers), gold = _unpack(gen.make(mtype, situ))
+            uid = f"u{n}"; n += 1
+            seq = store + fillers          # fillers 已是 (text,day) 列表
+            for text, day in seq:
                 t = T0 + timedelta(days=day, minutes=len(text) % 7)
-                eng.prepare_turn(uid, text, now=t)
-                eng.commit(uid, text, "（回复）", now=t)
+                eng.prepare_turn(uid, text, now=t); eng.commit(uid, text, "（回复）", now=t)
             ptext, pday = probe
             d = eng.prepare_turn(uid, ptext, now=T0 + timedelta(days=pday, hours=1))
-            # 严格口径：只认"记忆通道"里的 gold（召回记忆 + 远端档案 + 用户档案块），
-            # 绝不把当前输入文本的回声算作召回——否则"突然提及"会假性满分（自欺）
-            surface = " ".join(m.text for m in d.memories)
-            surface += " " + (d.profile_summary or "")
-            surface += " " + (d.user_facts or "")
+            surface = " ".join(m.text for m in d.memories) + " " + (d.profile_summary or "") + " " + (d.user_facts or "")
             hit = gold in surface
-            grid[situ][mtype][0] += hit
-            grid[situ][mtype][1] += 1
+            grid[situ][mtype][0] += hit; grid[situ][mtype][1] += 1
+            if not hit and len(fails[mtype]) < 25:
+                fails[mtype].append((store[0][0], ptext, gold))
+            del eng._cache[uid]
 
-    # ── 报告 ──
+    _report(pool, seed, per, port, grid, fails)
+    return grid
+
+
+def _unpack(made):
+    store, probe_pack, gold = made
+    probe, fillers = probe_pack
+    return store, (probe, fillers), gold
+
+
+def _report(pool, seed, per, port, grid, fails):
     print(f"\n记忆压力测试 · 池={pool} · seed={seed} · 每情境{per}条 · {'接远端' if port else '纯本地'}")
-    print("=" * 78)
-    hdr = f"{'情境/类型':<12}" + "".join(f"{t:>11}" for t in ["名字","喜好","朋友","几天前","一个月前","最在乎"])
-    print(hdr)
-    tot_h = tot_n = 0
+    print("=" * 80)
+    print(f"{'情境/类型':<11}" + "".join(f"{ZH[t]:>11}" for t in TYPES))
+    th = tn = 0
     for s in SITUATIONS:
-        row = f"{s:<12}"
+        row = f"{s:<11}"
         for t in TYPES:
-            h, n = grid[s][t]; tot_h += h; tot_n += n
-            row += f"{h}/{n:<3}({100*h//max(n,1):>3}%)"[:11].rjust(11)
+            h, nn = grid[s][t]; th += h; tn += nn
+            row += f"{100*h//max(nn,1):>9}% "
         print(row)
-    print("-" * 78)
-    # 按类型汇总
-    print("按记忆类型汇总：")
-    for t, zh in zip(TYPES, ["名字","喜好","朋友","几天前的事","一个月前的事","最在乎的事"]):
-        h = sum(grid[s][t][0] for s in SITUATIONS); n = sum(grid[s][t][1] for s in SITUATIONS)
-        print(f"  {zh:<8} {h}/{n}  {100*h//max(n,1)}%")
-    print(f"\n总召回率：{tot_h}/{tot_n} = {100*tot_h//max(tot_n,1)}%")
-    return tot_h, tot_n
+    print("-" * 80)
+    for t in TYPES:
+        h = sum(grid[s][t][0] for s in SITUATIONS); nn = sum(grid[s][t][1] for s in SITUATIONS)
+        print(f"  {ZH[t]:<8} {h}/{nn}  {100*h//max(nn,1)}%")
+    print(f"\n总召回率：{th}/{tn} = {100*th//max(tn,1)}%")
+    # 失败样本（定位句式盲区）
+    shown = False
+    for t in TYPES:
+        if fails[t]:
+            if not shown:
+                print("\n失败样本（定位句式盲区）："); shown = True
+            print(f"  [{ZH[t]}] 共{sum(grid[s][t][1]-grid[s][t][0] for s in SITUATIONS)}例，样本：")
+            for store_txt, probe, gold in fails[t][:6]:
+                print(f"     存「{store_txt}」问「{probe}」期望含「{gold}」")
+
+
+def run_mixed(pool, seed, users, port=None):
+    r = random.Random(seed * 31 + 7)
+    names = half(NAMES, pool); prefs = half(PREFS, pool); rel = RELATIONS
+    events = half(EVENTS, pool); cared = half(CARED, pool)
+    T0 = datetime(2026, 1, 1, 9, 0)
+    eng = _engine(port)
+    cat = {"名字": [0, 0], "喜好": [0, 0], "朋友": [0, 0], "事件": [0, 0], "最在乎": [0, 0]}
+    for u in range(users):
+        uid = f"life{u}"
+        name = r.choice(names); my_prefs = r.sample(prefs, 4); my_people = r.sample(names, 3)
+        my_rel = [r.choice(rel) for _ in range(3)]; my_events = r.sample(events, 4); my_cared = r.sample(cared, 2)
+        script = [(r.choice(T_NAME).format(n=name), 0)]
+        script += [(r.choice(T_PREF).format(x=p[0]), 1 + i) for i, p in enumerate(my_prefs)]
+        script += [(r.choice(T_PERSON).format(p=pp, r=rr), 4 + i) for i, (pp, rr) in enumerate(zip(my_people, my_rel))]
+        script += [(r.choice(T_EVENT_OLD).format(a=a, o=o), 6 + i) for i, (a, o) in enumerate(my_events[:2])]
+        script += [(r.choice(T_EVENT_RECENT).format(a=a, o=o), 20 + i) for i, (a, o) in enumerate(my_events[2:])]
+        script += [(r.choice(T_CARED).format(c=c), 24 + i) for i, c in enumerate(my_cared)]
+        for text, day in script:
+            t = T0 + timedelta(days=day, minutes=len(text) % 5)
+            eng.prepare_turn(uid, text, now=t); eng.commit(uid, text, "（回复）", now=t)
+
+        def surf(q):
+            d = eng.prepare_turn(uid, q, now=T0 + timedelta(days=40))
+            return " ".join(m.text for m in d.memories) + " " + (d.user_facts or "")
+        s = surf(r.choice(P_NAME)); cat["名字"][1] += 1; cat["名字"][0] += name in s
+        for p in my_prefs:
+            s = surf(r.choice(P_PREF)); cat["喜好"][1] += 1; cat["喜好"][0] += p[0] in s
+        for pp in my_people:
+            s = surf("你记得我那些朋友吗"); cat["朋友"][1] += 1; cat["朋友"][0] += pp in s
+        for a, o in my_events:
+            s = surf("还记得我{0}的事吗".format(a)); cat["事件"][1] += 1; cat["事件"][0] += o in s
+        for c in my_cared:
+            s = surf(r.choice(P_CARED)); cat["最在乎"][1] += 1; cat["最在乎"][0] += c in s
+        del eng._cache[uid]
+    print(f"\n混合负载 torture · 池={pool} · {users}用户每人十几条事实 · 一个月后竞争追问")
+    print("=" * 60)
+    th = tn = 0
+    for k, (h, nn) in cat.items():
+        th += h; tn += nn
+        print(f"  {k:<8} {h}/{nn}  {100*h//max(nn,1)}%")
+    print(f"  {'总计':<8} {th}/{tn}  {100*th//max(tn,1)}%")
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pool", choices=["dev", "test"], default="dev")
     ap.add_argument("--seed", type=int, default=None)
-    ap.add_argument("--per", type=int, default=100)
+    ap.add_argument("--per", type=int, default=10000)
     ap.add_argument("--port", default=None)
+    ap.add_argument("--mixed", action="store_true")
     a = ap.parse_args()
     seed = a.seed if a.seed is not None else (1 if a.pool == "dev" else 7)
-    run(a.pool, seed, a.per, a.port)
+    if a.mixed:
+        run_mixed(a.pool, seed, a.per, a.port)
+    else:
+        run(a.pool, seed, a.per, a.port)
 
 
 if __name__ == "__main__":
     main()
-
-
-# ── 混合负载 torture：一个用户存十几条事实，逐条在竞争下追问（防单事实自欺）──
-def run_mixed(pool: str, seed: int, users: int):
-    r = random.Random(seed * 31 + 7)
-    names = half(NAMES, pool); prefs = half(PREFS, pool)
-    rel = RELATIONS; events = half(EVENTS, pool); cared = half(CARED, pool)
-    T0 = datetime(2026, 1, 1, 9, 0)
-    cat = {"名字": [0, 0], "喜好": [0, 0], "朋友": [0, 0], "事件": [0, 0], "最在乎": [0, 0]}
-    for u in range(users):
-        eng = CompanionEngine(config=EngineConfig(state_dir=tempfile.mkdtemp()))
-        uid = f"life{u}"
-        name = r.choice(names)
-        my_prefs = r.sample(prefs, 4); my_people = r.sample(names, 3)
-        my_rel = [r.choice(rel) for _ in range(3)]
-        my_events = r.sample(events, 4); my_cared = r.sample(cared, 2)
-        # 一段"生活"：把十几条事实在多天里自然说出
-        script = [(f"我叫{name}", 0)]
-        script += [(f"我超喜欢{p[0]}", 1 + i) for i, p in enumerate(my_prefs)]
-        script += [(f"{pp}是我的{rr}", 4 + i) for i, (pp, rr) in enumerate(zip(my_people, my_rel))]
-        script += [(f"上个月我{a}{o}", 6 + i) for i, (a, o) in enumerate(my_events[:2])]
-        script += [(f"前几天我{a}{o}", 20 + i) for i, (a, o) in enumerate(my_events[2:])]
-        script += [(f"我最在乎的就是{c}", 24 + i) for i, c in enumerate(my_cared)]
-        for text, day in script:
-            t = T0 + timedelta(days=day, minutes=len(text) % 5)
-            eng.prepare_turn(uid, text, now=t); eng.commit(uid, text, "（回复）", now=t)
-        probe_day = 40    # 一个月后逐条追问（竞争 + 衰减）
-
-        def surf(q):
-            d = eng.prepare_turn(uid, q, now=T0 + timedelta(days=probe_day))
-            return " ".join(m.text for m in d.memories) + " " + (d.user_facts or "")
-
-        s = surf("你还记得我叫什么名字吗"); cat["名字"][1] += 1; cat["名字"][0] += name in s
-        for p in my_prefs:
-            s = surf("你记得我喜欢什么吗"); cat["喜好"][1] += 1; cat["喜好"][0] += p[0] in s
-        for pp in my_people:
-            s = surf("你记得我那些朋友吗"); cat["朋友"][1] += 1; cat["朋友"][0] += pp in s
-        for a, o in my_events:
-            s = surf(f"还记得我{a}的事吗"); cat["事件"][1] += 1; cat["事件"][0] += o in s
-        for c in my_cared:
-            s = surf("你知道我最在乎什么吗"); cat["最在乎"][1] += 1; cat["最在乎"][0] += c in s
-
-    print(f"\n混合负载 torture · 池={pool} · {users}个用户每人十几条事实 · 一个月后竞争追问")
-    print("=" * 60)
-    th = tn = 0
-    for k, (h, n) in cat.items():
-        th += h; tn += n
-        print(f"  {k:<8} {h}/{n}  {100*h//max(n,1)}%")
-    print(f"  {'总计':<8} {th}/{tn}  {100*th//max(tn,1)}%")
