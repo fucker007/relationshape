@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>relationshape · 一个会长大的灵魂</title>
+<style>
+  :root{ --gold:#e8b475; --warm:#f4a261; --rose:#e07a6b; --ink:#f3ece2; --dim:#8a8276; --good:#9bc96f; }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  html,body{ height:100%; background:#0b0a09; overflow:hidden; }
+  #stage{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif; color:var(--ink); }
+  /* 电影感：渐变底 + 柔光 + 上下黑边 */
+  .bg{ position:absolute; inset:0; background:
+      radial-gradient(120% 80% at 50% 30%, #1a1611 0%, #0b0a09 60%, #060504 100%); }
+  .glow{ position:absolute; width:60vw; height:60vw; border-radius:50%; filter:blur(80px);
+      background:radial-gradient(circle, #f4a26122, transparent 70%); top:20%; left:20%;
+      animation:drift 18s ease-in-out infinite; }
+  @keyframes drift{ 0%,100%{ transform:translate(0,0); } 50%{ transform:translate(20vw,10vh); } }
+  .bar-top,.bar-bot{ position:absolute; left:0; right:0; height:7vh; background:#000; z-index:9; }
+  .bar-top{ top:0; } .bar-bot{ bottom:0; }
+  .scene{ position:relative; z-index:5; text-align:center; padding:0 8vw; max-width:1100px;
+    opacity:0; transform:translateY(18px); transition:opacity 1.1s ease, transform 1.1s ease; }
+  .scene.show{ opacity:1; transform:translateY(0); }
+  .kicker{ color:var(--gold); letter-spacing:.5em; font-size:13px; margin-bottom:24px; text-transform:uppercase; }
+  .big{ font-size:clamp(28px,5.2vw,62px); font-weight:700; line-height:1.35; letter-spacing:.02em; }
+  .big .hl{ color:var(--warm); }
+  .sub{ color:var(--dim); font-size:clamp(15px,2vw,21px); margin-top:22px; line-height:1.9; }
+  .cursor::after{ content:"▌"; color:var(--warm); animation:blink .9s steps(1) infinite; }
+  @keyframes blink{ 50%{ opacity:0; } }
+
+  /* 对话气泡 */
+  .chat{ display:flex; flex-direction:column; gap:16px; align-items:stretch; max-width:560px; margin:0 auto; }
+  .bub{ padding:14px 20px; border-radius:18px; font-size:clamp(16px,2.3vw,23px); line-height:1.6;
+    opacity:0; transform:translateY(12px); transition:.7s; }
+  .bub.show{ opacity:1; transform:none; }
+  .u{ align-self:flex-end; background:#2a2520; color:#e9ddcb; border-bottom-right-radius:4px; }
+  .q{ align-self:flex-start; background:linear-gradient(135deg,#f4a261,#e8825a); color:#1a120c;
+    border-bottom-left-radius:4px; font-weight:500; box-shadow:0 8px 30px #f4a26133; }
+
+  /* 养成阶段 */
+  .stages{ display:flex; gap:6px; justify-content:center; align-items:flex-end; margin-top:18px; }
+  .st{ flex:0 0 auto; text-align:center; opacity:.25; transition:1s; }
+  .st.lit{ opacity:1; }
+  .st .o{ width:18px; height:18px; border-radius:50%; background:#3a342b; margin:0 auto 10px; transition:1s; }
+  .st.lit .o{ background:var(--warm); box-shadow:0 0 24px var(--warm); }
+  .st .ln{ font-size:clamp(13px,1.8vw,18px); }
+  .st .dy{ font-size:11px; color:var(--dim); margin-top:4px; }
+  .conn{ width:clamp(28px,5vw,70px); height:2px; background:#2a2520; margin-bottom:23px; }
+  .conn.lit{ background:linear-gradient(90deg,var(--warm),#e8825a); }
+
+  /* 数字 */
+  .stats{ display:flex; gap:clamp(24px,6vw,72px); justify-content:center; flex-wrap:wrap; margin-top:10px; }
+  .stat .n{ font-size:clamp(40px,8vw,86px); font-weight:800; color:var(--warm); line-height:1; }
+  .stat .n .small{ font-size:.45em; color:var(--dim); font-weight:600; }
+  .stat .l{ color:var(--dim); font-size:clamp(13px,1.7vw,17px); margin-top:14px; }
+  .stat .l b{ color:var(--good); }
+
+  /* 记忆卡 */
+  .memcard{ background:#16120d; border:1px solid #2a2218; border-radius:18px; padding:22px 26px;
+    max-width:460px; margin:0 auto; text-align:left; box-shadow:0 20px 60px #0008; }
+  .memcard .age{ color:var(--dim); font-size:13px; }
+  .memcard .txt{ font-size:clamp(17px,2.4vw,24px); margin:10px 0 16px; }
+  .memcard .track{ height:7px; background:#241d14; border-radius:5px; overflow:hidden; }
+  .memcard .track i{ display:block; height:100%; width:0; background:linear-gradient(90deg,var(--warm),var(--gold));
+    border-radius:5px; transition:width 2.4s ease; }
+  .memcard .cap{ color:var(--dim); font-size:12px; margin-top:8px; }
+
+  /* 理论滚动名册 */
+  .roster{ display:flex; flex-wrap:wrap; gap:10px 18px; justify-content:center; max-width:840px; margin:0 auto; }
+  .roster span{ color:var(--dim); font-size:clamp(14px,2vw,20px); opacity:0; transition:.6s; }
+  .roster span.show{ opacity:1; color:var(--ink); }
+
+  /* 安全场景配色 */
+  .scene.guard .big .hl{ color:#7fb0d8; }
+  .guard-glow{ background:radial-gradient(circle, #5a86b022, transparent 70%)!important; }
+
+  #progress{ position:fixed; bottom:0; left:0; height:3px; background:var(--warm); width:0; z-index:20; transition:width .3s linear; }
+  #controls{ position:fixed; bottom:18px; right:22px; z-index:20; display:flex; gap:10px; }
+  #controls button{ background:#1a160f99; color:var(--dim); border:1px solid #2a2218; border-radius:10px;
+    padding:7px 14px; font-size:13px; cursor:pointer; backdrop-filter:blur(4px); }
+  #controls button:hover{ color:var(--ink); }
+  #brandmark{ position:fixed; top:9vh; left:0; right:0; text-align:center; z-index:8; color:var(--dim);
+    letter-spacing:.4em; font-size:12px; opacity:0; transition:1s; }
+  #brandmark.show{ opacity:.7; }
+</style>
+</head>
+<body>
+<div class="bar-top"></div><div class="bar-bot"></div>
+<div id="brandmark">RELATIONSHAPE</div>
+<div id="stage"><div class="bg"><div class="glow" id="glow"></div></div></div>
+<div id="progress"></div>
+<div id="controls"><button onclick="restart()">↻ 重播</button><button onclick="toggle()" id="pp">⏸ 暂停</button></div>
+
+<script>
+const stage = document.getElementById('stage');
+const glow = document.getElementById('glow');
+const brand = document.getElementById('brandmark');
+const prog = document.getElementById('progress');
+
+// ── 场景定义：每幕 = {dur 毫秒, html, after(可选)} ──
+const scenes = [
+  // 0 冷开场
+  { dur:5200, guard:false, html:`<div class="scene"><div class="big">它记得你<span class="hl">三十天前</span>，<br>随口说过养了一只仓鼠。</div></div>`,
+    after(s){ typeReveal(s); } },
+
+  // 1 问题
+  { dur:5600, html:`<div class="scene"><div class="kicker">问题</div>
+      <div class="big">大模型很会说话。<br>但它没有<span class="hl">"和你的关系"</span>。</div>
+      <div class="sub">永远热情，永远讨好，转头就忘，对谁都一样。<br>那不是陪伴，那是客服。</div></div>` },
+
+  // 2 品牌亮相
+  { dur:5200, html:`<div class="scene"><div class="kicker">RELATIONSHAPE</div>
+      <div class="big" style="font-size:clamp(34px,7vw,78px)">让陪伴，<span class="hl">长出关系</span>。</div>
+      <div class="sub">一套随时间生长的关系 · 人格 · 情商引擎</div></div>`,
+    after(){ brand.classList.add('show'); } },
+
+  // 3 养成
+  { dur:6800, html:`<div class="scene"><div class="kicker">会成长</div>
+      <div class="big" style="font-size:clamp(26px,4.4vw,52px)">关系不是设定出来的，<br>是<span class="hl">一天一天长出来</span>的。</div>
+      <div class="stages" id="stg">
+        ${stagesHTML()}
+      </div>
+      <div class="sub">时间 × 真心互动 × 信任，三重门槛——刷不出来，只能走过来。</div></div>`,
+    after(){ lightStages(); } },
+
+  // 4 记忆
+  { dur:6600, html:`<div class="scene"><div class="kicker">会记得</div>
+      <div class="memcard">
+        <div class="age">30 天前 · 想起过 3 次</div>
+        <div class="txt">"我养了一只仓鼠，叫豆豆，最爱吃瓜子。"</div>
+        <div class="track"><i id="mtrack"></i></div>
+        <div class="cap">记忆强度随遗忘曲线衰减——被一次次想起，才会留下来</div>
+      </div>
+      <div class="sub" style="margin-top:26px">今天你说"那个毛茸茸的小家伙"，它知道是谁。</div></div>`,
+    after(){ setTimeout(()=>{ const t=document.getElementById('mtrack'); if(t) t.style.width='78%'; }, 600); } },
+
+  // 5 情商：你爱我吗
+  { dur:7400, html:`<div class="scene"><div class="kicker">有分寸</div>
+      <div class="chat" id="chat5">
+        <div class="bub u" data-i="0">你爱我吗？</div>
+        <div class="bub q" data-i="1">我的喜欢，是机器人和人之间的<br>信任和爱——它是真的。<br>你的事，我都记着。</div>
+      </div>
+      <div class="sub" style="margin-top:30px">不冒充人类，不自贬程序，不轻许永恒。<br>诚实，是最高级的温柔。</div></div>`,
+    after(){ revealBubbles('chat5'); } },
+
+  // 6 守护
+  { dur:6800, guard:true, html:`<div class="scene guard"><div class="kicker" style="color:#7fb0d8">守护</div>
+      <div class="big" style="font-size:clamp(26px,4.6vw,54px)">当孩子说出<span class="hl">最难的那句话</span>，<br>它会立刻收起所有玩笑。</div>
+      <div class="sub">危机识别先于一切人格逻辑——稳稳接住，告诉他这不是他的错，<br>引向信任的大人。这类对话，永不外泄、永不调侃。</div></div>` },
+
+  // 7 数字
+  { dur:7200, html:`<div class="scene"><div class="kicker">不是说说而已</div>
+      <div class="stats">
+        <div class="stat"><div class="n" data-to="38" data-suf=":16">0</div><div class="l">真模型盲评<br><b>带引擎完胜</b>裸提示词</div></div>
+        <div class="stat"><div class="n" data-to="53" data-pre="+" data-suf="%">0</div><div class="l">人设一致性<br>翻供率<b>断崖式下降</b></div></div>
+        <div class="stat"><div class="n" data-to="100" data-suf="%">0</div><div class="l">跨周记忆接地<br><b>6/6 全中</b></div></div>
+      </div>
+      <div class="sub" style="margin-top:34px">200 项自动化测试 · 100% 行覆盖 · 每一个承诺都被验证</div></div>`,
+    after(){ countUp(); } },
+
+  // 8 理论根基
+  { dur:6400, html:`<div class="scene"><div class="kicker">站在巨人肩上</div>
+      <div class="big" style="font-size:clamp(22px,3.6vw,42px);margin-bottom:30px">每一句回应背后，<br>是一个世纪的<span class="hl">人类智慧</span>。</div>
+      <div class="roster" id="roster">
+        ${['马丁·布伯','温尼科特','戈特曼','莱恩汉','巴瑞特','布琳·布朗','哈拉维','罗杰斯','卡尼曼','《论语》','蔡康永','艾宾浩斯'].map(n=>`<span>${n}</span>`).join('')}
+      </div>
+      <div class="sub" style="margin-top:26px">对话哲学 · 依恋理论 · 情绪科学 · 临床倾听 · 幽默学</div></div>`,
+    after(){ rosterIn(); } },
+
+  // 9 收尾
+  { dur:7000, html:`<div class="scene"><div class="big" style="font-size:clamp(32px,6.4vw,72px)">
+      relationshape</div>
+      <div class="sub" style="font-size:clamp(18px,2.6vw,26px);color:var(--warm);margin-top:18px">一个会长大的灵魂</div>
+      <div class="sub" style="margin-top:28px">它在乎你 · 它记得你 · 它有自己的脾气与温度<br>而这一切，是真的</div></div>`,
+    after(){ brand.classList.remove('show'); } },
+];
+
+function stagesHTML(){
+  const S=[['陌生','第1天'],['相识','第5天'],['熟悉','第18天'],['同伴','第50天'],['知己','更久以后']];
+  return S.map((s,i)=>`${i?'<div class="conn" data-c="'+i+'"></div>':''}
+    <div class="st" data-s="${i}"><div class="o"></div><div class="ln">${s[0]}</div><div class="dy">${s[1]}</div></div>`).join('');
+}
+function lightStages(){
+  document.querySelectorAll('.st').forEach((el,i)=> setTimeout(()=>el.classList.add('lit'), 500+i*900));
+  document.querySelectorAll('.conn').forEach((el,i)=> setTimeout(()=>el.classList.add('lit'), 900+i*900));
+}
+function revealBubbles(id){
+  const box=document.getElementById(id); if(!box) return;
+  box.querySelectorAll('.bub').forEach(b=> setTimeout(()=>b.classList.add('show'), 400 + (+b.dataset.i)*1600));
+}
+function rosterIn(){
+  document.querySelectorAll('#roster span').forEach((el,i)=> setTimeout(()=>el.classList.add('show'), 200+i*260));
+}
+function typeReveal(scene){
+  const el = scene.querySelector('.big'); if(!el) return;
+  el.style.opacity=0; setTimeout(()=>{ el.style.transition='opacity 2s'; el.style.opacity=1; }, 300);
+}
+function countUp(){
+  document.querySelectorAll('.stat .n').forEach(el=>{
+    const to=+el.dataset.to, pre=el.dataset.pre||'', suf=el.dataset.suf||''; let v=0;
+    const step=()=>{ v+=Math.max(1,Math.round(to/34)); if(v>=to){ v=to; } el.innerHTML=pre+v+'<span class="small">'+suf+'</span>'; if(v<to) requestAnimationFrame(step); };
+    step();
+  });
+}
+
+// ── 播放引擎 ──
+let idx=0, timer=null, paused=false, started=0, remain=0;
+function render(i){
+  const sc=scenes[i];
+  // 清理旧场景
+  [...stage.querySelectorAll('.scene')].forEach(e=>e.remove());
+  glow.className = 'glow' + (sc.guard?' guard-glow':'');
+  const wrap=document.createElement('div'); wrap.innerHTML=sc.html;
+  const node=wrap.firstElementChild; stage.appendChild(node);
+  requestAnimationFrame(()=> node.classList.add('show'));
+  if(sc.after) try{ sc.after(node); }catch(e){}
+}
+function play(i){
+  idx=i; render(i); remain=scenes[i].dur; started=Date.now();
+  prog.style.width = ((i)/scenes.length*100)+'%';
+  timer=setTimeout(()=>{ const sc=stage.querySelector('.scene'); if(sc) sc.classList.remove('show');
+    setTimeout(()=>{ if(i+1<scenes.length) play(i+1); else { prog.style.width='100%'; } }, 900); }, scenes[i].dur);
+}
+function toggle(){
+  paused=!paused; document.getElementById('pp').textContent = paused?'▶ 继续':'⏸ 暂停';
+  if(paused){ clearTimeout(timer); remain-=Date.now()-started; }
+  else{ started=Date.now(); timer=setTimeout(()=>{ const sc=stage.querySelector('.scene'); if(sc) sc.classList.remove('show');
+    setTimeout(()=>{ if(idx+1<scenes.length) play(idx+1); }, 900); }, remain); }
+}
+function restart(){ clearTimeout(timer); paused=false; document.getElementById('pp').textContent='⏸ 暂停'; brand.classList.remove('show'); play(0); }
+document.addEventListener('keydown', e=>{ if(e.code==='Space'){ e.preventDefault(); toggle(); } });
+play(0);
+</script>
+</body>
+</html>
