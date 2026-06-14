@@ -278,6 +278,8 @@ class TurnDirective:
 
     # 融合层（MemoryPort）：远端人物档案摘要（会话首轮注入）
     profile_summary: Optional[str] = None
+    # 本地用户档案：一个朋友本就知道的你（名字/喜好/朋友/最在乎），结构稳定不靠字面命中
+    user_facts: Optional[str] = None
 
     def to_prompt_context(self) -> str:
         from relationshape.prompting import render_prompt_context

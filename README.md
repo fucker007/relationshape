@@ -119,7 +119,7 @@ relationshape/
 
 ```bash
 pip install -e ".[dev]"
-pytest                      # 197 项测试（含融合契约与线缆级安全断言）
+pytest                      # 205 项测试（含记忆压力留出集所修的通用机制）
 python demo/simulate.py     # 30 天关系生长模拟
 python demo/simulate.py --chat   # 交互看每轮指令
 python demo/dashboard.py --demo  # 养成面板（http://127.0.0.1:8088，先生成30天演示数据）

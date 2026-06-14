@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -58,6 +59,28 @@ _FORWARD_TYPES = (
     InputType.TOPIC, InputType.CREATIVE_TOPIC, InputType.EXTERNAL_COMPLAINT,
     InputType.GOOD_NEWS, InputType.SELF_DISTRESS, InputType.ASK_ADVICE,
 )
+
+
+_VAGUE_RECALL_RE = re.compile(
+    r"(那件事|那个事儿?|上次(那|的|跟|说)|之前(那|的|说|聊)|以前(说|聊|讲)的"
+    r"|跟你说过的那|好久前.{0,4}的那?件?事|还记得.{0,10}(吗|不|么))"
+)
+
+
+def _render_user_facts(f: dict) -> Optional[str]:
+    """把结构化用户档案折成一行人话——朋友本就记得的你。空则不渲染。"""
+    bits: list[str] = []
+    if f.get("name"):
+        bits.append(f"TA叫{f['name']}")
+    if f.get("preferences"):
+        bits.append("喜欢" + "、".join(f["preferences"]))
+    if f.get("aversions"):
+        bits.append("怕/讨厌" + "、".join(f["aversions"]))
+    if f.get("people"):
+        bits.append("身边的人：" + "、".join(f"{n}（{r}）" for n, r in f["people"]))
+    if f.get("cared"):
+        bits.append("TA最在乎：" + "、".join(f["cared"]))
+    return "；".join(bits) if bits else None
 
 
 class CompanionEngine:
@@ -156,6 +179,9 @@ class CompanionEngine:
             highlight = st.memory.recent_highlight(now)
             if highlight:
                 memories = [highlight]
+        # 模糊回指兜底：问"那件事/上次/还记得…吗"但无具体词命中时，浮出最显著记忆
+        if not memories and _VAGUE_RECALL_RE.search(text):
+            memories = st.memory.most_salient(now, self.config.memory_half_life_days, k=3)
         memories = memories[: self.config.max_recall]
 
         # ---- 融合层：远端长期记忆（fail-open，危机轮已在上方短路不会到这里）----
@@ -273,6 +299,7 @@ class CompanionEngine:
         # ---- 本体论身份层：每轮一行立场；身世轮注入全量设定与自述账本 ----
         directive.identity_line = f"{self.identity.name}——{self.identity.ontology_stance}"
         directive.profile_summary = profile_summary
+        directive.user_facts = _render_user_facts(st.memory.user_profile_facts())
         if frame.input_type == InputType.ONTOLOGY_QUESTION:
             directive.self_canon = list(self.identity.self_canon)
             directive.self_claims = list(st.adaptation.self_claims)

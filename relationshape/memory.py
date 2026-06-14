@@ -68,10 +68,38 @@ class Promise:
         return cls(**d)
 
 
-_PREFERENCE_RE = re.compile(r"我(最|特别|超|很)?(喜欢|爱|想学|在学|迷上)([^，。！？!?\s]{1,12})")
-_AVERSION_RE = re.compile(r"我(最|特别|超|很)?(讨厌|怕|害怕|受不了)([^，。！？!?\s]{1,12})")
-_NAME_RE = re.compile(r"我叫([^\s，。！？!?]{1,8})")
-_PERSON_RE = re.compile(r"([^\s，。！？!?]{1,6})是我(最好)?的?(朋友|同桌|同学|老师|哥|姐|弟|妹|闺蜜)")
+_PREFERENCE_RE = re.compile(r"我(最|特别|超|很|可)?(喜欢|爱|最爱|想学|在学|迷上|钟意|喜欢上)([^，。！？!?\s]{1,12})")
+_AVERSION_RE = re.compile(r"我(最|特别|超|很)?(讨厌|怕|害怕|受不了|不喜欢)([^，。！？!?\s]{1,12})")
+# 名字：一类模式而非单串（叫/名字是/名字叫/你可以叫我/我是X+年龄逗号）
+_NAME_RES = [
+    re.compile(r"我叫([^\s，。！？!?的了是]{1,4})"),
+    re.compile(r"我(?:的)?名字(?:是|叫)([^\s，。！？!?的了]{1,4})"),
+    re.compile(r"(?:你可以|你)?叫我([^\s，。！？!?的了吧呀]{1,4})"),
+    re.compile(r"我是([^\s，。！？!?的了个一不很真好谁什么]{1,4})(?:[，,]|今年|，今年|今年|岁|$)"),
+]
+_NAME_STOP = {"什么", "谁", "个", "一", "不", "很", "真", "好"}
+_REL_WORDS = {"朋友", "同桌", "同学", "老师", "哥哥", "姐姐", "弟弟", "妹妹", "闺蜜", "发小", "邻居"}
+# 疑问词：抽取到这些说明是"在问"而非"在陈述"，一律不学（通用护栏，防把问句当事实）
+_INTERROG = ("什么", "啥", "谁", "哪", "多少", "怎么")
+
+
+def _is_interrog(s: str) -> bool:
+    return any(q in s for q in _INTERROG)
+_PERSON_RES = [
+    # X是我(最好的)(好)同桌 —— 名字在前，关系可带 好/亲/最好 前缀
+    re.compile(r"([^\s，。！？!?的了好亲最]{1,4})是我(?:最|最好)?的?(?:好|亲)?(朋友|同桌|同学|老师|哥哥|姐姐|弟弟|妹妹|闺蜜|发小|邻居)"),
+    # 我(有个|的)(好)同桌叫X —— 关系在前，名字在后（叫/是 必需，避免空名）
+    re.compile(r"我(?:有个|的)(?:好|亲)?(朋友|同桌|同学|老师|哥哥|姐姐|弟弟|妹妹|闺蜜|发小|邻居)(?:叫|是)([^\s，。！？!?的了]{1,4})"),
+]
+# 角色/关系泛称：永远不当作"具体人名"塞进用户档案（只有真名+关系才算"身边的人"）
+_ROLE_WORDS = _REL_WORDS | {"客户", "老板", "领导", "同事", "教练", "妈妈", "爸爸",
+                            "爷爷", "奶奶", "外婆", "外公", "姥姥", "姥爷", "老师"}
+# 最在乎：高优先级、长期保留、永远进档案（用户主动强调的核心）
+_CARED_RES = [
+    re.compile(r"(?:我)?最(?:在乎|看重|放不下|珍惜)的(?:就)?是([^，。！？!?]{1,14})"),
+    re.compile(r"对我(?:来说)?最重要的(?:就)?是([^，。！？!?]{1,14})"),
+    re.compile(r"([^，。！？!?]{1,14})是我(?:心里)?最(?:在乎|看重|重要)的"),
+]
 
 # 角色承诺的口头模式："下次我给你讲…" "明天我们…"
 _CHAR_PROMISE_RE = re.compile(
@@ -86,6 +114,7 @@ class MemoryBank:
         self.aversions: list[str] = []
         self.people: dict[str, dict] = {}     # 名字/角色 -> {"relation":…, "mentions":n}
         self.user_name: str | None = None
+        self.cared: list[str] = []            # 用户主动强调"最在乎"的核心，长期保留
         self.promises: list[Promise] = []
 
     # ------------------------------------------------------------------ 写入
@@ -107,29 +136,60 @@ class MemoryBank:
     def extract_facts(self, text: str, mentioned_actors: list[str]) -> list[str]:
         """从用户原话提取语义事实，返回"新学到的事"列表（供奖励判断）。"""
         learned: list[str] = []
-        m = _NAME_RE.search(text)
-        if m and self.user_name != m.group(1):
-            self.user_name = m.group(1)
-            learned.append(f"名字：{self.user_name}")
+        # 名字：扫一类模式，取第一个通过有效性过滤的
+        for re_name in _NAME_RES:
+            m = re_name.search(text)
+            if m:
+                nm = _strip_particles(m.group(1))
+                if nm and nm not in _NAME_STOP and not _is_interrog(nm) and self.user_name != nm:
+                    self.user_name = nm
+                    learned.append(f"名字：{nm}")
+                break
         for m in _PREFERENCE_RE.finditer(text):
             item = _strip_particles(m.group(3))
-            if item and item not in self.preferences:
+            if item and not _is_interrog(item) and item not in self.preferences:
                 self.preferences.append(item)
                 learned.append(f"喜欢：{item}")
         for m in _AVERSION_RE.finditer(text):
             item = _strip_particles(m.group(3))
-            if item and item not in self.aversions:
+            if item and not _is_interrog(item) and item not in self.aversions:
                 self.aversions.append(item)
                 learned.append(f"不喜欢：{item}")
-        for m in _PERSON_RE.finditer(text):
-            name, relation = m.group(1), m.group(3)
-            if name not in self.people:
-                self.people[name] = {"relation": relation, "mentions": 0}
-                learned.append(f"身边的人：{name}（{relation}）")
+        for re_p in _PERSON_RES:
+            for m in re_p.finditer(text):
+                g = m.groups()
+                # 两种模式：(名,关系) 或 (关系,名)
+                name, relation = (g[0], g[1]) if g[1] in _REL_WORDS else (g[1], g[0])
+                name = _strip_particles(name)
+                if (name and name not in _NAME_STOP and name not in _ROLE_WORDS
+                        and not _is_interrog(name) and name not in self.people):
+                    self.people[name] = {"relation": relation, "mentions": 0}
+                    learned.append(f"身边的人：{name}（{relation}）")
+        for re_c in _CARED_RES:
+            m = re_c.search(text)
+            if m:
+                item = _strip_particles(m.group(1))
+                if item and not _is_interrog(item) and item not in self.cared:
+                    self.cared.append(item)
+                    self.cared = self.cared[-6:]
+                    learned.append(f"最在乎：{item}")
+                break
         for actor in mentioned_actors:
             entry = self.people.setdefault(actor, {"relation": actor, "mentions": 0})
             entry["mentions"] += 1
         return learned
+
+    def user_profile_facts(self) -> dict:
+        """结构化的"一个朋友本就知道的你"——不依赖字面命中，长期稳定。"""
+        return {
+            "name": self.user_name,
+            "preferences": self.preferences[-5:],
+            "aversions": self.aversions[-3:],
+            # 只把"真名+关系"的人放进档案；泛称角色词（朋友/老师/妈妈）不算具体的人
+            "people": [(k, v.get("relation", "")) for k, v in self.people.items()
+                       if k not in _ROLE_WORDS][-4:],
+            "cared": self.cared[-3:],
+        }
 
     # ------------------------------------------------------------------ 遗忘
 
@@ -174,6 +234,29 @@ class MemoryBank:
                 text=ep.text, kind="episode", score=round(score, 3), days_ago=days,
                 hint="相关就自然带一句，不相关就别硬塞",
             ))
+        return out
+
+    def most_salient(self, now: datetime, half_life_days: float, k: int = 3) -> list[MemoryRecall]:
+        """模糊回指（"上次那件事"）兜底：浮出显著度最高的几条候选。
+        多件事时"那件事"本就有歧义——浮出候选让模型据上下文挑、或轻轻确认是哪件
+        （好朋友的反应：'你是说养乌龟还是上次摔跤那件？'），而不是默默猜错。"""
+        scored = []
+        for ep in self.episodes:
+            if ep.sensitive:
+                continue
+            days = max(0.0, (now - datetime.fromisoformat(ep.created_at)).total_seconds() / 86400)
+            half = half_life_days * (1 + 0.8 * ep.recall_count)
+            cur = ep.salience * (0.5 ** (days / half))
+            scored.append((cur, ep, int(days)))
+        scored.sort(key=lambda x: -x[0])
+        out = []
+        multi = len(scored) > 1
+        for cur, ep, days in scored[:k]:
+            ep.recall_count += 1
+            hint = ("对方在模糊提'那件事'，候选不止一件——不确定就轻轻问是哪件，别默默猜"
+                    if multi else "对方在模糊提'那件事'，多半就是这件，自然接住")
+            out.append(MemoryRecall(text=ep.text, kind="episode", score=round(cur, 3),
+                                    days_ago=days, hint=hint))
         return out
 
     def recent_highlight(self, now: datetime) -> MemoryRecall | None:
@@ -254,6 +337,7 @@ class MemoryBank:
             "aversions": self.aversions,
             "people": self.people,
             "user_name": self.user_name,
+            "cared": self.cared,
             "promises": [p.to_dict() for p in self.promises],
         }
 
@@ -265,5 +349,6 @@ class MemoryBank:
         bank.aversions = d.get("aversions", [])
         bank.people = d.get("people", {})
         bank.user_name = d.get("user_name")
+        bank.cared = d.get("cared", [])
         bank.promises = [Promise.from_dict(p) for p in d.get("promises", [])]
         return bank

@@ -70,6 +70,10 @@ def render_prompt_context(d: TurnDirective) -> str:
     if d.identity_line:
         lines.append(f"【你是谁】{d.identity_line}")
 
+    # ---- 你记得的TA（本地用户档案：名字/喜好/朋友/最在乎，朋友本就知道的你）----
+    if d.user_facts:
+        lines.append(f"【你记得的TA】{d.user_facts}")
+
     # ---- TA是谁（远端人物档案，会话首轮注入）----
     if d.profile_summary:
         lines.append(f"【TA是谁】{d.profile_summary}")
