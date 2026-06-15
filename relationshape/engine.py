@@ -301,6 +301,7 @@ class CompanionEngine:
         directive.identity_line = f"{self.identity.name}——{self.identity.ontology_stance}"
         directive.profile_summary = profile_summary
         directive.user_facts = _render_user_facts(st.memory.user_profile_facts())
+        directive.user_name = st.memory.user_name
         if frame.input_type == InputType.ONTOLOGY_QUESTION:
             directive.self_canon = list(self.identity.self_canon)
             directive.self_claims = list(st.adaptation.self_claims)

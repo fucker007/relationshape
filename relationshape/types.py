@@ -280,6 +280,8 @@ class TurnDirective:
     profile_summary: Optional[str] = None
     # 本地用户档案：一个朋友本就知道的你（名字/喜好/朋友/最在乎），结构稳定不靠字面命中
     user_facts: Optional[str] = None
+    # 用户名字：单列一份，配合【TA的名字】强调块（被问到名字时绝不说忘了）
+    user_name: Optional[str] = None
 
     def to_prompt_context(self) -> str:
         from relationshape.prompting import render_prompt_context
