@@ -30,7 +30,11 @@ def _strip_particles(item: str) -> str:
 
 
 def _looks_like_self_name(name: str) -> bool:
+    if not name:
+        return False
     if any(word in name for word in ("什么", "啥", "哪个", "哪一个")):
+        return False
+    if name in globals().get("_NAME_STOP", set()):
         return False
     if "名字" in name and len(name) <= 4:
         return False
@@ -39,8 +43,6 @@ def _looks_like_self_name(name: str) -> bool:
 
 def _looks_like_bare_self_name(name: str) -> bool:
     if not _looks_like_self_name(name):
-        return False
-    if name in {"学生", "老师", "男生", "女生", "小孩", "孩子", "用户", "人类"}:
         return False
     return "·" in name or len(name) >= 4
 
@@ -123,16 +125,19 @@ _PREF_NEGATE_RES = [
 ]
 # 名字：一类模式而非单串
 _NAME_RES = [
-    re.compile(r"我(?:小名|大名|本名|大名儿)(?:是|叫)([^\s，。！？!?的了]{1,4})"),
-    re.compile(r"我名叫([^\s，。！？!?的了是]{1,4})"),
-    re.compile(r"我[，,、\s]*叫([^\s，。！？!?的了是啦呀哦]{1,4})"),
-    re.compile(r"我(?:的)?名字[呀啊呢，,\s]*(?:是|叫)([^\s，。！？!?的了]{1,4})"),
-    re.compile(r"(?:你可以|你|都|大家都?|人家)?(?:叫|喊)我([^\s，。！？!?的了吧呀哦]{1,4})"),
-    re.compile(r"(?:人家|大家都?)(?:叫|喊)([^\s，。！？!?的了吧呀哦]{1,4})[啦呀哦吧]*$"),
+    (re.compile(r"我(?:小名|大名|本名|大名儿)(?:是|叫)(?!什么|啥|哪|何)([^\s，。！？!?]{1,20})"), _looks_like_self_name),
+    (re.compile(r"我名叫(?!什么|啥|哪|何)([^\s，。！？!?]{1,20})"), _looks_like_self_name),
+    (re.compile(r"我[，,、\s]*叫(?!什么|啥|哪|何)([^\s，。！？!?啦呀哦]{1,20})"), _looks_like_self_name),
+    (re.compile(r"我(?:的)?名字[呀啊呢，,\s]*(?:是|叫)(?!什么|啥|哪|何)([^\s，。！？!?]{1,20})"), _looks_like_self_name),
+    (re.compile(r"(?:你可以|你|都|大家都?|人家)?(?:叫|喊)我(?!什么|啥|哪|何)([^\s，。！？!?吧呀哦]{1,20})"), _looks_like_self_name),
+    (re.compile(r"(?:人家|大家都?)(?:叫|喊)(?!什么|啥|哪|何)([^\s，。！？!?吧呀哦]{1,20})[啦呀哦吧]*$"), _looks_like_self_name),
     # 年龄自我介绍框架"X，今年N岁"几乎确定在报名字 → 放宽用字（允许 好/一 等名字常用字）
-    re.compile(r"我是([^\s，。！？!?的了]{1,4})[，,]?今年"),
+    (re.compile(r"我是(?!谁|什么|啥|哪|何)([^\s，。！？!?]{1,20})[，,]?今年"), _looks_like_self_name),
     # 裸"我是X"有歧义（我是学生/好人）→ 保守排除常见谓词起始字
-    re.compile(r"我是([^\s，。！？!?的了个一不很真好谁什么]{1,4})(?:[，,]|岁|$)"),
+    (
+        re.compile(r"我是(?!谁|什么|啥|哪|何|一个|一名|个|在|想|很|不|没|来|说|觉得)([^\s，。！？!?]{1,20})(?:[，,。！？!?]|岁|$)"),
+        _looks_like_bare_self_name,
+    ),
 ]
 _NAME_STOP = {"什么", "谁", "个", "一", "不", "很", "真", "好",
               # 常见身份谓词：是普通名词不是名字（"我是学生"不该把名字设成"学生"）
@@ -230,15 +235,10 @@ class MemoryBank:
     def extract_facts(self, text: str, mentioned_actors: list[str]) -> list[str]:
         """从用户原话提取语义事实，返回"新学到的事"列表（供奖励判断）。"""
         learned: list[str] = []
-        # 名字：扫一类模式，取第一个通过有效性过滤的
-        for re_name in _NAME_RES:
-            m = re_name.search(text)
-            if m:
-                nm = _strip_particles(m.group(1))
-                if nm and nm not in _NAME_STOP and not _is_interrog(nm) and self.user_name != nm:
-                    self.user_name = nm
-                    learned.append(f"名字：{nm}")
-                break
+        nm = _extract_user_name(text)
+        if nm and self.user_name != nm:
+            self.user_name = nm
+            learned.append(f"名字：{nm}")
         # 先处理偏好撤回（"不喜欢X了"）：删旧偏好，且标记为已撤回，
         # 避免后续正向模式（"不喜欢"里嵌着"喜欢X"）把它又加回去，也不当新厌恶
         retracted: set[str] = set()
@@ -566,6 +566,12 @@ class MemoryBank:
         bank.aversions = d.get("aversions", [])
         bank.people = d.get("people", {})
         bank.user_name = d.get("user_name")
+        if not bank.user_name or any(word in str(bank.user_name) for word in ("什么", "啥", "哪个", "哪一个")):
+            for ep in reversed(bank.episodes):
+                name = _extract_user_name(ep.text)
+                if name:
+                    bank.user_name = name
+                    break
         bank.cared = d.get("cared", [])
         bank.cat_prefs = d.get("cat_prefs", {})
         bank.cat_aversions = d.get("cat_aversions", {})
