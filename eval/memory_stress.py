@@ -29,6 +29,7 @@ sys.path.insert(0, str(ROOT))
 
 from relationshape import CompanionEngine, EngineConfig  # noqa: E402
 from relationshape.memory_port import MemorySystemAdapter  # noqa: E402
+from relationshape.memory import MemoryBank  # noqa: E402
 
 # ── 程序化名字池：单字叠词(乐乐) + 双字组合(欣怡)，生成数百个，奇偶切 dev/test ──
 _SYL_A = list("乐朵浩婷睿欣子一梓天糖豆果琪航鑫宇涵悦杰宁晨阳雨梦佳宝贝桐暖闹咪壮鱼安然可思雅文博睿艺彤浩鹏")
@@ -296,13 +297,83 @@ def main():
     ap.add_argument("--per", type=int, default=10000)
     ap.add_argument("--port", default=None)
     ap.add_argument("--mixed", action="store_true")
+    ap.add_argument("--update", action="store_true")
     a = ap.parse_args()
     seed = a.seed if a.seed is not None else (1 if a.pool == "dev" else 7)
-    if a.mixed:
+    if a.update:
+        run_update(a.pool, seed, a.per)
+    elif a.mixed:
         run_mixed(a.pool, seed, a.per, a.port)
     else:
         run(a.pool, seed, a.per, a.port)
 
+
+
+# ── 多事实冲突更新 健壮性压测（偏好失效/更替/转移），留出池，刁钻句式 ──
+T_PREF_POS = ["我最喜欢{0}了","我超爱{0}","我特别喜欢{0}","我可喜欢{0}啦","我最爱的就是{0}",
+              "我爱死{0}了","我就喜欢{0}","最近迷上了{0}","我对{0}特别着迷","我超迷{0}"]
+T_PREF_NEG = ["我不喜欢{0}了","我现在不爱{0}了","我不太喜欢{0}了","我不怎么喜欢{0}了",
+              "我对{0}没兴趣了","我不想再玩{0}了","{0}我已经不喜欢了","我再也不喜欢{0}了",
+              "{0}玩腻了","我对{0}腻了","现在不喜欢{0}了","我不爱{0}了"]
+T_PREF_REPL = ["我不喜欢{0}了，现在最喜欢{1}","不爱{0}了，改喜欢{1}了","我不喜欢{0}了，最近迷上了{1}",
+               "{0}玩腻了，现在超爱{1}","我对{0}没兴趣了，现在喜欢{1}","不玩{0}了，改喜欢{1}"]
+T_PREF_SHIFT = ["我现在更喜欢{1}了","比起{0}我现在更爱{1}","最近我更迷{1}了","我现在最爱{1}"]
+
+
+def run_update(pool, seed, per):
+    r = random.Random(seed)
+    prefs = [p[0] for p in half(PREFS, pool)]
+    cat = {"撤回": [0, 0], "更替": [0, 0], "转移": [0, 0], "部分撤回": [0, 0]}
+    fails = {k: [] for k in cat}
+    for _ in range(per):
+        scen = r.choice(["撤回", "更替", "转移", "部分撤回"])
+        b = MemoryBank()
+        if scen == "撤回":
+            x = r.choice(prefs)
+            s1 = r.choice(T_PREF_POS).format(x); s2 = r.choice(T_PREF_NEG).format(x)
+            b.extract_facts(s1, []); b.extract_facts(s2, [])
+            pf = b.user_profile_facts()["preferences"]
+            ok = x not in pf and x not in b.aversions
+            why = (s1, s2, f"{x}应消失")
+        elif scen == "更替":
+            x, y = r.sample(prefs, 2)
+            s1 = r.choice(T_PREF_POS).format(x); s2 = r.choice(T_PREF_REPL).format(x, y)
+            b.extract_facts(s1, []); b.extract_facts(s2, [])
+            pf = b.user_profile_facts()["preferences"]
+            ok = x not in pf and y in pf
+            why = (s1, s2, f"{x}消失且{y}在")
+        elif scen == "转移":
+            x, y = r.sample(prefs, 2)
+            s1 = r.choice(T_PREF_POS).format(x); s2 = r.choice(T_PREF_SHIFT).format(x, y)
+            b.extract_facts(s1, []); b.extract_facts(s2, [])
+            pf = b.user_profile_facts()["preferences"]
+            ok = y in pf                                 # 转移：新的在即可（旧的可留）
+            why = (s1, s2, f"{y}在")
+        else:  # 部分撤回：3个偏好撤掉中间1个，另两个必须留
+            xs = r.sample(prefs, 3)
+            for x in xs:
+                b.extract_facts(r.choice(T_PREF_POS).format(x), [])
+            drop = xs[1]
+            neg = r.choice(T_PREF_NEG).format(drop)
+            b.extract_facts(neg, [])
+            pf = b.user_profile_facts()["preferences"]
+            ok = drop not in pf and xs[0] in pf and xs[2] in pf
+            why = (f"存{xs}", neg, f"{drop}消失,{xs[0]}/{xs[2]}留")
+        cat[scen][0] += ok; cat[scen][1] += 1
+        if not ok and len(fails[scen]) < 12:
+            fails[scen].append(why)
+    print(f"\n冲突更新健壮性压测 · 池={pool} · seed={seed} · {per}条 · 留出泛化")
+    print("=" * 64)
+    th = tn = 0
+    for k, (h, nn) in cat.items():
+        th += h; tn += nn
+        print(f"  {k:<8} {h}/{nn}  {100*h//max(nn,1)}%")
+    print(f"  {'总计':<8} {th}/{tn}  {100*th//max(tn,1)}%")
+    for k in cat:
+        if fails[k]:
+            print(f"\n  [{k}] 失败样本：")
+            for a, bb, g in fails[k][:6]:
+                print(f"     「{a}」+「{bb}」期望：{g}")
 
 if __name__ == "__main__":
     main()
