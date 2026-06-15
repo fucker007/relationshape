@@ -131,6 +131,8 @@ _AVERSION_RES = [
     # 主语"我"与否定词之间允许程度副词（"我一点都不爱吃""我真的不爱吃"）。
     re.compile(r"([^，。！？!?,\s]{1,8}?)我" + _ADV + r"(?:不|最不|不大|不太|不怎么)(?:爱|喜欢)吃(?=[，。！？!?\s了啦的呢吧]|$)"),
     re.compile(r"([^，。！？!?,\s]{1,8}?)我" + _ADV + r"(?:最|特别|超|可)?(?:讨厌|受不了|怕|烦)(?=[，。！？!?\s了啦的呢吧]|$)"),   # 宾语前置：X我最讨厌
+    # 宾语前置 + "我是"判断式："菠菜我是真心讨厌"（程度副词可选；动词须落小句末）
+    re.compile(r"([^，。！？!?,\s]{1,8}?)我是(?:真心|真的?|特别|超|可|最|挺|蛮|打心眼里)?(?:讨厌|不喜欢|受不了|怕|烦)(?=[，。！？!?\s了啦的呢吧]|$)"),
 ]
 # 偏好失效/更新（多事实冲突）：撤回旧偏好。"不喜欢X了"是撤回，不是新厌恶
 _LAZY = r"[^，。！？!?,\s]{1,12}?"
@@ -145,6 +147,8 @@ _PREF_NEGATE_RES = [
 # 名字：一类模式而非单串
 _NAME_RES = [
     (re.compile(r"我(?:小名|大名|本名|大名儿)(?:是|叫)(?!什么|啥|哪|何)([^\s，。！？!?]{1,20})"), _looks_like_self_name),
+    # "我小名X""我大名X"（省略 是/叫）——小名/大名是强自报标记；负向前瞻挡掉形容词/谓词起始
+    (re.compile(r"我(?:小名|大名|本名|大名儿)(?!是|叫|什么|啥|哪|何|很|太|特|挺|真|就|也|都|不|没|长|有|可)([^\s，。！？!?的了呢吧啦呀哦]{1,8})"), _looks_like_self_name),
     (re.compile(r"我名叫(?!什么|啥|哪|何)([^\s，。！？!?]{1,20})"), _looks_like_self_name),
     (re.compile(r"我[，,、\s]*叫(?!什么|啥|哪|何)([^\s，。！？!?啦呀哦]{1,20})"), _looks_like_self_name),
     (re.compile(r"我(?:的)?名字[呀啊呢，,\s]*(?:是|叫)(?!什么|啥|哪|何)([^\s，。！？!?]{1,20})"), _looks_like_self_name),
@@ -220,6 +224,19 @@ def _user_is_subject(seg: str) -> bool:
 # 子句切分 + 负向子句识别：线头按子句生成，否定/厌恶子句整段不产出正向线头
 _CLAUSE_SPLIT = re.compile(r"[，。！？!?,.;；：:、～~…\s]+")
 _NEG_CLAUSE = re.compile(r"[不没别甭]|讨厌|烦死?|腻|嫌|受不了|怕|烦人")
+# 偏好"撤回"需变化标记（了/再/现在/已经/腻…）；裸"不喜欢X"无标记 → 稳定厌恶，不是撤回
+_RETRACT_MARK = re.compile(r"了|不再|再也|已经|早就|现在|原来|曾经|本来|腻|没兴趣|不感兴趣")
+_PRONOUNS = {"你", "我", "他", "她", "它", "您", "咱", "你们", "他们", "她们"}
+
+
+def _clause_at(text: str, pos: int) -> str:
+    """返回 text 中包含位置 pos 的那个小句（按标点/空白切分）。"""
+    last = 0
+    for m in _CLAUSE_SPLIT.finditer(text):
+        if m.start() > pos:
+            return text[last:m.start()]
+        last = m.end()
+    return text[last:]
 
 
 def _is_third_party_clause(clause: str) -> bool:
@@ -253,7 +270,8 @@ def clean_hook_tokens(text: str, negatives: list[str] | None = None) -> list[str
             if tok not in out:
                 out.append(tok)
     return out
-_RELG = r"(朋友|同桌|同学|老师|哥哥|姐姐|弟弟|妹妹|闺蜜|发小|邻居|队友|死党)"
+# 关系词允许可选"好/亲/铁"前缀（"好朋友""好好朋友"都能解析），捕获组仍只取干净的关系名
+_RELG = r"(?:好|亲|铁)?(朋友|同桌|同学|老师|哥哥|姐姐|弟弟|妹妹|闺蜜|发小|邻居|队友|死党)"
 _NM = r"[^\s，。！？!?的了好亲最就和跟与是]{1,4}"     # 通用名字片段
 _NM3 = r"[^\s，。！？!?的了对很太特好就和跟与是啊呀]{1,3}"  # 紧跟关系后的名字（更紧）
 _PERSON_RES = [
@@ -262,7 +280,7 @@ _PERSON_RES = [
     # 我(有个|的|那个|那位)(好)同桌(叫|是)X —— 关系在前，名字在后
     re.compile(r"我(?:有个|的|那个|那位)(?:好|亲)?" + _RELG + r"(?:叫|是)(" + _NM + r")"),
     # 我(跟|和|与)X是(我)(的)同桌
-    re.compile(r"我(?:跟|和|与)(" + _NM + r")是(?:我)?的?" + _RELG),
+    re.compile(r"我(?:跟|和|与)(" + _NM + r")是(?:我)?的?(?:一对|一双|一伙|对|铁)?" + _RELG),
     # 我的同桌X（名字紧跟关系，无叫/是）
     re.compile(r"我的" + _RELG + r"(" + _NM3 + r")"),
     # X，我(的)闺蜜
@@ -346,17 +364,23 @@ class MemoryBank:
         if nm and self.user_name != nm:
             self.user_name = nm
             learned.append(f"名字：{nm}")
-        # 先处理偏好撤回（"不喜欢X了"）：删旧偏好，且标记为已撤回，
-        # 避免后续正向模式（"不喜欢"里嵌着"喜欢X"）把它又加回去，也不当新厌恶
+        # 否定有两义：带变化标记（"不喜欢X了/不再喜欢X/现在不喜欢X"）是偏好【撤回】；
+        # 裸否定（"不喜欢X""不爱X"无标记）是稳定【厌恶】。都标记 retracted 挡正向模式把 X 当偏好。
         retracted: set[str] = set()
         for re_n in _PREF_NEGATE_RES:
             for m in re_n.finditer(text):
                 item = _strip_particles(m.group(1))
-                if item and not _is_interrog(item):
+                if not item or _is_interrog(item) or item in _PRONOUNS:
+                    continue
+                if _RETRACT_MARK.search(_clause_at(text, m.start())):
                     retracted.add(item)
                     if item in self.preferences:
                         self.preferences.remove(item)
                         learned.append(f"不再喜欢：{item}")
+                elif _user_is_subject(text[: m.start()]) and item not in self.aversions:
+                    self.aversions.append(item)          # 裸否定 → 稳定厌恶（仅当用户是主语）
+                    learned.append(f"不喜欢：{item}")
+                    retracted.add(item)
         # 品类化偏好/厌恶先抽（"喜欢的水果是苹果"），存 category→item，并把 item 也加进偏好
         cat_items: set[str] = set()
         for re_c in _CAT_PREF_RES:
