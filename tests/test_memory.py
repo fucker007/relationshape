@@ -216,3 +216,40 @@ def test_real_aversion_still_captured():
     b = MemoryBank()
     b.extract_facts("我讨厌青椒", []); b.extract_facts("我害怕打雷", [])
     assert "青椒" in b.aversions and "打雷" in b.aversions
+
+
+def test_pref_no_connector_prefix_garbage():
+    """泛模式吞连接词的隐患：'我最爱的就是X'必须抽成'X'不是'的就是X'。"""
+    b = MemoryBank()
+    b.extract_facts("我最爱的就是收集贴纸", [])
+    assert "收集贴纸" in b.preferences
+    assert not any(p.startswith(("的", "就是")) for p in b.preferences)
+
+
+def test_retraction_phrasing_robustness():
+    """10k健壮性压测逼出的多样撤回句式都应删旧偏好。"""
+    for neg in ["我不喜欢{0}了", "我对{0}没兴趣了", "{0}玩腻了", "我对{0}腻了",
+                "{0}我已经不喜欢了", "我再也不喜欢{0}了", "我不想再玩{0}了", "不玩{0}了"]:
+        b = MemoryBank()
+        b.extract_facts("我最喜欢恐龙了", [])
+        b.extract_facts(neg.format("恐龙"), [])
+        assert "恐龙" not in b.preferences, f"撤回失败：{neg}"
+        assert "恐龙" not in b.aversions
+
+
+def test_partial_retraction_keeps_others():
+    b = MemoryBank()
+    for x in ["足球", "滑板", "打太极"]:
+        b.extract_facts(f"我最喜欢{x}了", [])
+    b.extract_facts("我不喜欢滑板了", [])
+    assert "滑板" not in b.preferences
+    assert "足球" in b.preferences and "打太极" in b.preferences
+
+
+def test_transfer_captures_new_favorite():
+    """'更爱/更迷Y'要能把新偏好抽进来。"""
+    for shift in ["我现在更喜欢{0}了", "比起恐龙我现在更爱{0}", "最近我更迷{0}了"]:
+        b = MemoryBank()
+        b.extract_facts("我最喜欢恐龙了", [])
+        b.extract_facts(shift.format("机器人"), [])
+        assert "机器人" in b.preferences, f"转移失败：{shift}"
