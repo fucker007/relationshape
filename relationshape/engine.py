@@ -30,7 +30,7 @@ from relationshape.memory import is_memory_query as _memory_is_query
 from relationshape.memory import clean_hook_tokens as _clean_hook_tokens
 from relationshape.memory_port import MemoryPort
 from relationshape.perception import perceive
-from relationshape.persistence import StateStore
+from relationshape.persistence import build_store
 from relationshape.relationship import (
     apply_absence,
     maybe_demote,
@@ -104,10 +104,11 @@ class CompanionEngine:
         memory_port: Optional[MemoryPort] = None,
         extractor=None,                            # 可选 LLM 抽取层（MemoryExtractorPort）；None=纯规则
         extractor_mode: str = "fallback",          # fallback=仅规则未命中时调；always=每个实质轮都调
+        store=None,                                # 注入存储后端；None=按 config.state_backend 自动选择
     ) -> None:
         self.identity = identity or CharacterIdentity()
         self.config = config or EngineConfig()
-        self.store = StateStore(self.config.state_dir)
+        self.store = store or build_store(self.config)
         self.memory_port = memory_port            # None = 纯本地（默认行为不变）
         self.extractor = extractor                # None = 默认零依赖、纯规则抽取
         self.extractor_mode = extractor_mode
