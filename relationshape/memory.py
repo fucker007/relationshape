@@ -107,8 +107,13 @@ _PREFERENCE_RES = [
     re.compile(r"(" + _OBJ + r")是我(?:的)?最爱"),
 ]
 _AVERSION_RES = [
-    re.compile(r"(?:讨厌|害怕|受不了|不喜欢|最怕|超怕|特别怕)(" + _OBJ + r")"),
+    re.compile(r"(?:讨厌|害怕|受不了|最怕|超怕|特别怕)(" + _OBJ + r")"),
     re.compile(r"我怕(" + _OBJ + r")"),
+]
+# 偏好失效/更新（多事实冲突）：撤回旧偏好。"不喜欢X了"是撤回，不是新厌恶
+_PREF_NEGATE_RES = [
+    re.compile(r"不(?:再|太|大|怎么)?(?:喜欢|爱)(" + _OBJ + r")"),
+    re.compile(r"(?:不想|懒得)(?:玩|学|看|要)(" + _OBJ + r")"),
 ]
 # 名字：一类模式而非单串
 _NAME_RES = [
@@ -207,16 +212,30 @@ class MemoryBank:
                     self.user_name = nm
                     learned.append(f"名字：{nm}")
                 break
+        # 先处理偏好撤回（"不喜欢X了"）：删旧偏好，且标记为已撤回，
+        # 避免后续正向模式（"不喜欢"里嵌着"喜欢X"）把它又加回去，也不当新厌恶
+        retracted: set[str] = set()
+        for re_n in _PREF_NEGATE_RES:
+            for m in re_n.finditer(text):
+                item = _strip_particles(m.group(1))
+                if item and not _is_interrog(item):
+                    retracted.add(item)
+                    if item in self.preferences:
+                        self.preferences.remove(item)
+                        learned.append(f"不再喜欢：{item}")
         for re_p in _PREFERENCE_RES:
             for m in re_p.finditer(text):
                 item = _strip_particles(m.group(1))
-                if item and not _is_interrog(item) and item not in self.preferences:
+                if item and not _is_interrog(item) and item not in retracted:
+                    if item in self.preferences:
+                        self.preferences.remove(item)      # 重提/转移 → 提到最近
                     self.preferences.append(item)
-                    learned.append(f"喜欢：{item}")
+                    if f"喜欢：{item}" not in learned:
+                        learned.append(f"喜欢：{item}")
         for re_a in _AVERSION_RES:
             for m in re_a.finditer(text):
                 item = _strip_particles(m.group(1))
-                if item and not _is_interrog(item) and item not in self.aversions:
+                if item and not _is_interrog(item) and item not in retracted and item not in self.aversions:
                     self.aversions.append(item)
                     learned.append(f"不喜欢：{item}")
         for re_p in _PERSON_RES:

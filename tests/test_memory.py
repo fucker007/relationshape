@@ -184,3 +184,35 @@ def test_person_extraction_all_phrasings():
         b = MemoryBank(); b.extract_facts(utt, [])
         people = dict(b.user_profile_facts()["people"])
         assert any(gold in k for k in people), f"{utt} → {list(people)}"
+
+
+# ── 多事实冲突更新（#10 keystone：偏好失效/更替，非只增列表）──
+
+def test_preference_retraction_removes_old():
+    b = MemoryBank()
+    b.extract_facts("我最喜欢恐龙了", [])
+    assert "恐龙" in b.preferences
+    b.extract_facts("我不喜欢恐龙了", [])
+    assert "恐龙" not in b.preferences          # 撤回：删掉旧偏好
+    assert "恐龙" not in b.aversions            # 且不矛盾地变成"讨厌"
+
+
+def test_preference_replacement_updates_to_new():
+    b = MemoryBank()
+    b.extract_facts("我最喜欢恐龙了", [])
+    b.extract_facts("我不喜欢恐龙了，现在最喜欢机器人", [])
+    assert "恐龙" not in b.preferences and "机器人" in b.preferences
+
+
+def test_preference_shift_keeps_both_recent_first():
+    """更喜欢新的≠讨厌旧的：两者都留，新的排到最近。"""
+    b = MemoryBank()
+    b.extract_facts("我最喜欢恐龙了", [])
+    b.extract_facts("我现在更喜欢机器人了", [])
+    assert b.preferences[-1] == "机器人"        # 最近偏好在末尾（档案展示当前最爱）
+
+
+def test_real_aversion_still_captured():
+    b = MemoryBank()
+    b.extract_facts("我讨厌青椒", []); b.extract_facts("我害怕打雷", [])
+    assert "青椒" in b.aversions and "打雷" in b.aversions
