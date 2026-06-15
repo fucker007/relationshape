@@ -1,6 +1,8 @@
-"""持久化：每用户一个 JSON 文件，原子写入。
+"""持久化：可插拔后端。
 
-原子写（临时文件 + os.replace）保证进程被杀时状态文件不会写坏一半。
+- StateStore：每用户一个 JSON 文件，原子写入（临时文件 + os.replace），零依赖、默认。
+- PostgresStateStore（pg_store.py）：复用 memory_system 的 PG 实例。
+两者同接口 load(user_id)/save(state)，由 build_store(config) 按 state_backend 选择。
 """
 
 from __future__ import annotations
@@ -13,6 +15,21 @@ import tempfile
 from relationshape.state import UserRelationState
 
 _SAFE_RE = re.compile(r"[^A-Za-z0-9_\-一-鿿]")
+
+
+def build_store(config):
+    """按 EngineConfig.state_backend 造存储后端。json（默认）｜postgres（复用 memory_system PG）。"""
+    backend = (getattr(config, "state_backend", "json") or "json").lower()
+    if backend in ("pg", "postgres", "postgresql"):
+        from relationshape.pg_store import PostgresStateStore
+        dsn = (getattr(config, "state_dsn", "") or os.environ.get("RELATIONSHAPE_PG_DSN")
+               or os.environ.get("MEMORY_PG_DSN"))
+        if not dsn:
+            raise ValueError(
+                "state_backend=postgres 需要 state_dsn，或环境变量 RELATIONSHAPE_PG_DSN / MEMORY_PG_DSN"
+            )
+        return PostgresStateStore(dsn, table=getattr(config, "state_table", "relationship_state"))
+    return StateStore(config.state_dir)
 
 
 def _safe_name(user_id: str) -> str:

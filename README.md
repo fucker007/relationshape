@@ -112,7 +112,8 @@ relationshape/
 ├── safety.py        # 危机接管
 ├── prompting.py     # 指令→中文提示词块
 ├── state.py         # 每用户状态聚合
-├── persistence.py   # 原子 JSON 持久化
+├── persistence.py   # 可插拔持久化：JSON（默认）/ build_store 工厂
+├── pg_store.py      # PostgreSQL 状态后端（复用 memory_system 的 PG 实例，JSONB 整存）
 └── zh.py            # 中文轻量文本工具
 ```
 
@@ -138,6 +139,25 @@ engine = CompanionEngine(extractor=DeepSeekExtractor())   # extractor_mode="fall
 ```
 
 LLM 只产出结构化事实，统一经 `MemoryBank.apply_extracted` 过门槛落地，并强制**子串接地**（抽出的值必须是原话子串）——模型只能框选/归一原文，凭空造的词污染不进记忆，精确率不变量在 LLM 介入后依然成立。
+
+## 状态持久化后端（JSON / PostgreSQL）
+
+每用户状态默认存为原子写入的 JSON 文件（零依赖）。要落到真实数据库（复用 memory_system 的 PG 实例），配置即可，无需改调用代码：
+
+```python
+from relationshape import CompanionEngine, EngineConfig
+cfg = EngineConfig(state_backend="postgres",
+                   state_dsn="postgresql://memory:密码@localhost:5433/memory")  # 或设环境变量 RELATIONSHAPE_PG_DSN
+engine = CompanionEngine(config=cfg)        # 也可 CompanionEngine(store=自定义后端) 直接注入
+```
+
+`UserRelationState` 是自洽状态文档，整存为一列 **JSONB**：事务/并发安全、可按 JSON 路径查询（`data->'memory'->>'user_name'`）、随引擎 schema 演进零迁移；人物图谱/向量那套规范化仍由 memory_system 负责。表自动创建，建表脚本见 `relationshape/sql/001_relationship_state.sql`。同步 psycopg3 驱动（引擎是同步的）。
+
+```bash
+export RELATIONSHAPE_PG_DSN=postgresql://memory:密码@localhost:5433/memory
+python eval/pg_smoke.py      # 冒烟：建表→一段对话往返→校验
+pytest tests/test_pg_store.py -v   # 真库往返测试（无 PG 时自动跳过）
+```
 
 ## 已知边界与路线图
 

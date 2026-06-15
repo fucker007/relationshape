@@ -49,8 +49,14 @@ def _default_stage_gates() -> dict[Stage, StageGate]:
 
 @dataclass
 class EngineConfig:
-    # 持久化目录：每个用户一份 JSON 状态
+    # 持久化目录：每个用户一份 JSON 状态（state_backend="json" 时生效）
     state_dir: str = "runtime/relationshape"
+
+    # 状态持久化后端："json"（默认，零依赖，每用户一文件）｜"postgres"（复用 memory_system 的 PG 实例）
+    state_backend: str = "json"
+    # postgres 后端连接串；为空则回退环境变量 RELATIONSHAPE_PG_DSN，再回退 MEMORY_PG_DSN
+    state_dsn: str = ""
+    state_table: str = "relationship_state"
 
     # 会话切分：超过这个间隔视为新会话
     session_gap_minutes: int = 30
