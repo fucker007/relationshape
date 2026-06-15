@@ -32,6 +32,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from relationshape import CompanionEngine, EngineConfig  # noqa: E402
+from relationshape.extract_port import ExtractedFacts  # noqa: E402
 from relationshape.memory_port import MemorySystemAdapter  # noqa: E402
 
 # ── 全新词表：刻意避开既有测试用词，且都是 ≥2 字的辨识度高的名词/活动 ──
@@ -187,8 +188,21 @@ class OracleExtractor:
         return self.cur.get((text or "").strip())
 
 
-def run(n: int, seed: int, verbose_fail: int = 6, llm: bool = False,
-        llm_mode: str = "fallback", oracle: bool = False):
+def run(
+    n: int,
+    seed: int,
+    verbose_fail: int = 6,
+    llm: bool = False,
+    llm_mode: str = "fallback",
+    oracle: bool = False,
+    *,
+    state_dir: str | None = None,
+    run_id: str | None = None,
+    persist: bool = True,
+    reset_state: bool = True,
+    memory_system_url: str = "",
+    require_memory_system: bool = False,
+):
     extractor = None
     if oracle:
         extractor = OracleExtractor()
@@ -196,7 +210,7 @@ def run(n: int, seed: int, verbose_fail: int = 6, llm: bool = False,
         from llm_extractor import DeepSeekExtractor      # 仅 --llm 时才需网络/密钥
         extractor = DeepSeekExtractor()
 
-    run_id = run_id or f"seed{seed}-{int(time.time())}"
+    run_id = run_id or f"seed{seed}-{time.time_ns()}"
     state_root = Path(state_dir or (ROOT / "runtime" / "convo_fuzz" / run_id))
     if persist and reset_state and state_root.exists():
         shutil.rmtree(state_root)
@@ -230,7 +244,7 @@ def run(n: int, seed: int, verbose_fail: int = 6, llm: bool = False,
         convo, tr, omap = gen(rng)
         if oracle:
             extractor.load(omap)
-        uid = f"c{i}"
+        uid = f"{run_id}-c{i}"
         now = t0 + timedelta(hours=i % 5000)
         for j, ut in enumerate(convo):
             eng.prepare_turn(uid, ut, now=now + timedelta(minutes=j))
@@ -298,6 +312,7 @@ if __name__ == "__main__":
     ap.add_argument("-n", type=int, default=2000)
     ap.add_argument("--seed", type=int, default=20260615)
     ap.add_argument("--llm", action="store_true", help="接入 DeepSeek 抽取层补召回（需 DEEPSEEK_API_KEY）")
+    ap.add_argument("--oracle", action="store_true", help="使用理想抽取器，估计当前落库通路的召回上界")
     ap.add_argument("--llm-mode", choices=["fallback", "always"], default="fallback",
                     help="fallback=仅规则未命中时调LLM（省钱）；always=每实质轮都调")
     ap.add_argument("--state-dir", default=None,
@@ -319,6 +334,7 @@ if __name__ == "__main__":
         a.seed,
         llm=a.llm,
         llm_mode=a.llm_mode,
+        oracle=a.oracle,
         state_dir=a.state_dir,
         run_id=a.run_id,
         persist=not a.no_persist,
