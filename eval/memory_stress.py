@@ -299,9 +299,12 @@ def main():
     ap.add_argument("--mixed", action="store_true")
     ap.add_argument("--update", action="store_true")
     ap.add_argument("--qualified", action="store_true")
+    ap.add_argument("--precision", action="store_true")
     a = ap.parse_args()
     seed = a.seed if a.seed is not None else (1 if a.pool == "dev" else 7)
-    if a.qualified:
+    if a.precision:
+        run_precision(a.pool, seed, a.per)
+    elif a.qualified:
         run_qualified(a.pool, seed, a.per)
     elif a.update:
         run_update(a.pool, seed, a.per)
@@ -458,6 +461,125 @@ def run_qualified(pool, seed, per):
             print(f"\n  [{kk}] 失败样本：")
             for f in fails[kk][:5]:
                 print(f"     {f}")
+
+
+
+# ── 精确率注入攻击（生产日志暴露的5类污染，10万条）──
+KINSHIP = ["妈妈","爸爸","奶奶","爷爷","外婆","外公","姥姥","老师","哥哥","姐姐","同学","叔叔","阿姨"]
+FOODS = ["面条","青椒","胡萝卜","香菜","茄子","苦瓜","洋葱","西蓝花","肥肉","豆腐","蘑菇","芹菜","南瓜","秋葵"]
+Q_FRIEND = ["我最好的朋友是谁","我打篮球的朋友是谁","跟我一起打羽毛球的朋友是谁","我最喜欢的朋友是谁",
+            "我有几个朋友","我那个同桌叫什么来着","我经常一起玩的朋友是谁"]
+Q_PREF = ["我最喜欢什么","我喜欢的水果是什么","我爱玩什么来着","我讨厌吃什么"]
+T_THIRD = ["我{k}喜欢{x}","{k}很喜欢{x}","我{k}爱{x}","{k}最爱{x}","我{k}就喜欢{x}"]
+T_AVER = ["我不喜欢吃{f}","我不爱吃{f}","我讨厌吃{f}","{f}我不爱吃","{f}我最讨厌了","我最怕吃{f}","我可不爱吃{f}"]
+T_PRONOUN = ["那个{r}对我很好","这个{r}挺好的","我{k}对我很好","那家伙是我{r}"]
+# 多子句"第三方做饭 + 用户厌恶"——生产日志原句类（"我妈妈总喜欢给我煮面条，但我不喜欢吃面条"）
+# 同时考验：①不把"吃X"记成偏好（漏看否定）②连词不当食物③第三方不进人名④不拿厌恶/第三方碎片做hook
+_COOK = ["煮","做","炒","蒸","烧","炖","烤","煎","熬","焖","拌","卤"]
+T_THIRD_AVER = [
+    "我{k}总喜欢给我{v}{f}，但我不喜欢吃{f}",
+    "{k}老是给我{v}{f}，可我不爱吃{f}",
+    "我{k}爱给我{v}{f}，不过我讨厌吃{f}",
+    "我{k}天天{v}{f}，但说实话我不爱吃{f}",
+    "{k}总{v}{f}给我吃，我其实最讨厌{f}了",
+    "我{k}喜欢{v}{f}，但{f}我一点都不爱吃",
+    "我{k}经常{v}{f}，可是我不喜欢吃{f}",
+    "{k}总给我{v}{f}，我却不爱吃{f}",
+]
+# 测hook泄漏用的负向词表（连词为闭类虚词，非测试特例）
+_CONJ_CHK = ["但","可","不过","却","其实","然后","所以","而","就","也","还","又","都"]
+
+
+def run_precision(pool, seed, per):
+    import tempfile as _tf
+    from relationshape import CompanionEngine, EngineConfig
+    r = random.Random(seed)
+    foods = foods_h = [FOODS[i] for i in range(len(FOODS)) if (i % 2 == 0) == (pool == "dev")]
+    cook_h = [_COOK[i] for i in range(len(_COOK)) if (i % 2 == 0) == (pool == "dev")]
+    cat = {"问句不入事实": [0, 0], "三方主体不记成我": [0, 0], "指代式厌恶": [0, 0],
+           "代词角色非人名": [0, 0], "问句不生成hook": [0, 0], "多子句三方厌恶不污染": [0, 0]}
+    fails = {k: [] for k in cat}
+    T0 = datetime(2026, 1, 1, 9, 0)
+    for _ in range(per):
+        scen = r.choice(list(cat))
+        if scen in ("问句不入事实", "问句不生成hook"):
+            eng = CompanionEngine(config=EngineConfig(state_dir=_tf.mkdtemp()))
+            eng.store.save = lambda st: None
+            q = r.choice(Q_FRIEND + Q_PREF)
+            eng.prepare_turn("u", q, now=T0); eng.commit("u", q, "（回复）", now=T0)
+            mem = eng._state("u").memory
+            if scen == "问句不入事实":
+                # 问句不该污染：people无新名、prefs无新增、episode不存问句
+                ok = (not mem.preferences and not [p for p in mem.user_profile_facts()["people"]]
+                      and not any("是谁" in e.text or "什么" in e.text or "几个" in e.text for e in mem.episodes))
+                if not ok and len(fails[scen]) < 8:
+                    fails[scen].append((q, mem.preferences, list(mem.people), [e.text for e in mem.episodes]))
+            else:
+                hook = eng._state("u").last_hook
+                ok = not hook or not _is_query(q)  # 问句不该生成 hook
+                ok = (hook is None)
+                if not ok and len(fails[scen]) < 8:
+                    fails[scen].append((q, hook))
+            cat[scen][0] += ok; cat[scen][1] += 1
+        elif scen == "三方主体不记成我":
+            k = r.choice(KINSHIP); x = r.choice(foods_h + ["游泳", "跳广场舞", "做饭", "看电视"])
+            b = MemoryBank(); b.extract_facts(r.choice(T_THIRD).format(k=k, x=x), [])
+            ok = x not in b.preferences
+            cat[scen][0] += ok; cat[scen][1] += 1
+            if not ok and len(fails[scen]) < 8:
+                fails[scen].append((r.choice(T_THIRD).format(k=k, x=x), b.preferences))
+        elif scen == "指代式厌恶":
+            f = r.choice(foods)
+            b = MemoryBank(); b.extract_facts(r.choice(T_AVER).format(f=f), [])
+            ok = f in b.aversions and f not in b.preferences
+            cat[scen][0] += ok; cat[scen][1] += 1
+            if not ok and len(fails[scen]) < 8:
+                fails[scen].append((r.choice(T_AVER).format(f=f), b.aversions, b.preferences))
+        elif scen == "代词角色非人名":
+            k = r.choice(KINSHIP); rel = r.choice(["朋友", "同学", "同桌"])
+            b = MemoryBank(); b.extract_facts(r.choice(T_PRONOUN).format(r=rel, k=k), [])
+            ppl = [p[0] for p in b.user_profile_facts()["people"]]
+            ok = not any(x in ("那", "这", "那个", "这个", rel, k, "那家伙", "我"+k) for x in ppl) and not ppl
+            cat[scen][0] += ok; cat[scen][1] += 1
+            if not ok and len(fails[scen]) < 8:
+                fails[scen].append((r.choice(T_PRONOUN).format(r=rel, k=k), ppl))
+        else:  # 多子句三方厌恶不污染（生产日志原句类，须走全引擎拿 hook）
+            k = r.choice(KINSHIP); f = r.choice(foods_h); v = r.choice(cook_h)
+            s = r.choice(T_THIRD_AVER).format(k=k, f=f, v=v)
+            eng = CompanionEngine(config=EngineConfig(state_dir=_tf.mkdtemp()))
+            eng.store.save = lambda st: None
+            eng.prepare_turn("u", s, now=T0); eng.commit("u", s, "（回复）", now=T0)
+            st = eng._state("u"); mem = st.memory
+            ppl = [p[0] for p in mem.user_profile_facts()["people"]]
+            hook = st.last_hook or ""
+            ok = (
+                f not in mem.preferences                         # ① 否定没漏：不记成偏好
+                and f in mem.aversions                            # 厌恶正确捕获
+                and not any(c in mem.aversions for c in _CONJ_CHK)  # ② 连词没被当食物
+                and not ppl                                       # 第三方不进人名
+                and f not in hook and k not in hook               # ③ hook不泄漏厌恶/第三方
+                and not any(c in hook for c in _CONJ_CHK)
+            )
+            cat[scen][0] += ok; cat[scen][1] += 1
+            if not ok and len(fails[scen]) < 8:
+                fails[scen].append((s, "prefs=" + str(mem.preferences), "avers=" + str(mem.aversions),
+                                    "ppl=" + str(ppl), "hook=" + repr(st.last_hook)))
+    print(f"\n精确率注入攻击 · 池={pool} · seed={seed} · {per}条 · 留出泛化")
+    print("=" * 64)
+    th = tn = 0
+    for kk, (h, nn) in cat.items():
+        th += h; tn += nn
+        print(f"  {kk:<14} {h}/{nn}  {100*h//max(nn,1)}%")
+    print(f"  {'总计':<14} {th}/{tn}  {100*th//max(tn,1)}%")
+    for kk in cat:
+        if fails[kk]:
+            print(f"\n  [{kk}] 失败样本：")
+            for f in fails[kk][:5]:
+                print(f"     {f}")
+
+
+def _is_query(t):
+    return t.rstrip().endswith(("？", "?")) or any(w in t for w in ("是谁", "几个", "什么", "哪个", "叫什么"))
 
 
 if __name__ == "__main__":

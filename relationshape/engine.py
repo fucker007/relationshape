@@ -26,6 +26,8 @@ from relationshape.affect import appraise, apply_emotion_to_mood, mood_word, reg
 from relationshape.config import EngineConfig
 from relationshape.humor import plan_humor
 from relationshape.identity import CharacterIdentity
+from relationshape.memory import is_memory_query as _memory_is_query
+from relationshape.memory import clean_hook_tokens as _clean_hook_tokens
 from relationshape.memory_port import MemoryPort
 from relationshape.perception import perceive
 from relationshape.persistence import StateStore
@@ -414,7 +416,9 @@ class CompanionEngine:
         # ---- 记忆与账本 ----
         # 情景记忆只收用户生活内容：对角色的攻击/夸奖/安抚进账本不进记忆，
         # 否则开场"惦记"的可能是一句"你真笨"；设备抱怨同理（钩子防污染）。
-        if frame.substantive:
+        # 问句是检索不是经历——不存为 episode、不生成 hook（生产日志：问句被当记忆）
+        is_query = _memory_is_query(user_text)
+        if frame.substantive and not is_query:
             if frame.input_type in _FORWARD_TYPES:
                 st.memory.add_episode(
                     user_text, reading.valence, reading.arousal, now,
@@ -476,14 +480,26 @@ class CompanionEngine:
         })
         st.traces = st.traces[-20:]
 
-        # ---- 钩子治理：只让用户的真实话题成为下一轮线头 ----
+        # ---- 钩子治理：只让用户的真实、正向话题成为下一轮线头 ----
+        # content_runs 会切碎句子并吞掉否定词，故用本轮抽取出的"厌恶/撤回"作负向信号，
+        # 配合第三方过滤，挡住"妈妈总喜欢给、煮面条"这类第三方碎片做开场（生产日志）。
         if frame.input_type == InputType.CHARACTER_REJECTION:
             st.last_hook = None
-        elif not (learned_user_name or is_user_name_intro) and frame.substantive and frame.topic_tokens and frame.input_type in (
-            InputType.TOPIC, InputType.CREATIVE_TOPIC, InputType.EXTERNAL_COMPLAINT,
-            InputType.GOOD_NEWS, InputType.ASK_ADVICE,
-        ):
-            st.last_hook = "、".join(frame.topic_tokens[:2])
+        elif (not is_query and not (learned_user_name or is_user_name_intro)
+              and frame.substantive and frame.topic_tokens and frame.input_type in (
+                  InputType.TOPIC, InputType.CREATIVE_TOPIC, InputType.EXTERNAL_COMPLAINT,
+                  InputType.GOOD_NEWS, InputType.ASK_ADVICE,
+              )):
+            # 事实在 prepare_turn 抽取并存进 pending；commit 复抽时已无"新"事实，故优先用 pending。
+            # 再叠加"本句提到的已知厌恶"——厌恶可能是早先轮学的，本轮不会重复学，但仍不该做正向线头。
+            turn_learned = pend.get("learned") or learned_facts
+            turn_negatives = [
+                tail for f in turn_learned
+                for head, _, tail in [f.partition("：")]
+                if tail and ("讨厌" in head or "不喜欢" in head or "不再" in head)
+            ] + [a for a in st.memory.aversions if a and a in user_text]
+            cands = _clean_hook_tokens(user_text, turn_negatives)
+            st.last_hook = "、".join(cands[:2]) if cands else None
 
         # ---- 遗忘 ----
         st.memory.decay_and_prune(

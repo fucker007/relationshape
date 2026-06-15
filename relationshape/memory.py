@@ -23,9 +23,17 @@ def _mid(text: str, ts: str) -> str:
     return hashlib.md5(f"{text}|{ts}".encode()).hexdigest()[:10]
 
 
+# 头部连词：只收"几乎不作名词词首"的连接词，绝不含可/就/也/还（可乐/就业/还有）
+_LEAD_CONJ_RE = re.compile(
+    r"^(?:但是|可是|不过|然而|然后|所以|因为|于是|虽然|尽管|并且|况且|再说|另外|其实|而且|但|却)+"
+)
+
+
 def _strip_particles(item: str) -> str:
-    """去掉抽取结果头尾的连接词/语气词（"我最爱的就是足球"被泛模式吞成"的就是足球"→"足球"）。"""
+    """去掉抽取结果头尾的连接词/语气词（"我最爱的就是足球"被泛模式吞成"的就是足球"→"足球"；
+    "但蘑菇我不爱吃"宾语前置吞成"但蘑菇"→"蘑菇"）。"""
     item = re.sub(r"^(?:的就是|的是|就是|的|是)", "", item or "")
+    item = _LEAD_CONJ_RE.sub("", item)
     return re.sub(r"[了的呢啊呀哦吧啦嘛]+$", "", item)
 
 
@@ -100,6 +108,8 @@ class Promise:
 
 
 _OBJ = r"[^，。！？!?,\s]{1,12}"      # 通用宾语片段
+# 主语与否定/程度词之间的程度副词簇（"我一点都不爱吃""我真的不喜欢""我从来不爱"）
+_ADV = r"(?:一点(?:都|也)?|半点(?:都|也)?|压根|根本|从来|向来|真的?|实在|确实|其实|完全|特别|可|就|也)?"
 # 喜好：动词锚定的一类模式（不强求主语"我"，覆盖口语）
 _PREFERENCE_RES = [
     re.compile(r"(?:喜欢上?|最爱|爱上|迷上了?|钟意|中意|稀罕)(" + _OBJ + r")"),
@@ -110,18 +120,25 @@ _PREFERENCE_RES = [
     re.compile(r"(" + _OBJ + r")是我(?:的)?最爱"),
 ]
 _AVERSION_RES = [
-    re.compile(r"(?:讨厌|害怕|受不了|最怕|超怕|特别怕)(" + _OBJ + r")"),
-    re.compile(r"我怕(" + _OBJ + r")"),
+    re.compile(r"(?:讨厌|害怕|受不了|最怕|超怕|特别怕)(?!吃)(" + _OBJ + r")"),
+    re.compile(r"我怕(?!吃)(" + _OBJ + r")"),
+    # 食物厌恶（"不喜欢吃X/讨厌吃X/X我不爱吃"）——这里的不喜欢是真厌恶，不是偏好撤回
+    re.compile(r"(?:不(?:大|太|怎么)?(?:喜欢|爱)|讨厌|最怕|受不了)吃(" + _OBJ + r")"),
+    # 宾语前置：动词须落在小句末（后面是标点/语气词/句尾），否则真正的宾语在动词之后，
+    # 抓到的前缀只是连词或别的成分（日志："但我不喜欢吃面条"误把"但"当食物）。
+    # 主语"我"与否定词之间允许程度副词（"我一点都不爱吃""我真的不爱吃"）。
+    re.compile(r"([^，。！？!?,\s]{1,8}?)我" + _ADV + r"(?:不|最不|不大|不太|不怎么)(?:爱|喜欢)吃(?=[，。！？!?\s了啦的呢吧]|$)"),
+    re.compile(r"([^，。！？!?,\s]{1,8}?)我" + _ADV + r"(?:最|特别|超|可)?(?:讨厌|受不了|怕|烦)(?=[，。！？!?\s了啦的呢吧]|$)"),   # 宾语前置：X我最讨厌
 ]
 # 偏好失效/更新（多事实冲突）：撤回旧偏好。"不喜欢X了"是撤回，不是新厌恶
 _LAZY = r"[^，。！？!?,\s]{1,12}?"
 _PREF_NEGATE_RES = [
-    re.compile(r"不(?:再|太|大|怎么)?(?:喜欢|爱)(" + _OBJ + r")"),       # 不(再/太)喜欢X
+    re.compile(r"不(?:再|太|大|怎么)?(?:喜欢|爱)(?!吃)(" + _OBJ + r")"),       # 不(再/太)喜欢X（吃X归食物厌恶）
     re.compile(r"(?:不想|懒得|不)(?:想|再|继续)*(?:玩|学|看|碰|要)(" + _OBJ + r")"),  # 不(想再)玩X/不玩X
     re.compile(r"对(" + _LAZY + r")(?:玩|看)?腻"),                       # 我对X(玩)腻了
     re.compile(r"(" + _LAZY + r")(?:玩|看)腻"),                          # X玩腻了
     re.compile(r"对(" + _LAZY + r")(?:没|不感)兴趣"),                    # 对X没兴趣了
-    re.compile(r"(" + _LAZY + r")我(?:已经|早就)?(?:不再|不太|不大|不怎么|不)(?:喜欢|爱)"),  # 宾语前置：X我已经不喜欢
+    re.compile(r"(" + _LAZY + r")我(?:已经|早就)?(?:不再|不太|不大|不怎么|不)(?:喜欢|爱)(?!吃)"),  # 宾语前置：X我已经不喜欢（不爱吃归厌恶）
 ]
 # 名字：一类模式而非单串
 _NAME_RES = [
@@ -142,14 +159,86 @@ _NAME_RES = [
 _NAME_STOP = {"什么", "谁", "个", "一", "不", "很", "真", "好",
               # 常见身份谓词：是普通名词不是名字（"我是学生"不该把名字设成"学生"）
               "学生", "老师", "医生", "男生", "女生", "男孩", "女孩", "小孩", "孩子",
-              "好人", "坏人", "新人", "大人"}
+              "好人", "坏人", "新人", "大人",
+              # 代词/泛称：绝不当人名（日志：'那'被当成人名）
+              "那", "这", "那个", "这个", "那位", "这位", "那家伙", "这家伙", "家伙", "他", "她", "它"}
 _REL_WORDS = {"朋友", "同桌", "同学", "老师", "哥哥", "姐姐", "弟弟", "妹妹", "闺蜜", "发小", "邻居"}
 # 疑问词：抽取到这些说明是"在问"而非"在陈述"，一律不学（通用护栏，防把问句当事实）
 _INTERROG = ("什么", "啥", "谁", "哪", "多少", "怎么")
+# 连词/虚词：闭类功能词，永不是偏好/厌恶/人名的对象（日志：'但'被宾语前置模式当成食物）
+# 这是语法泛化（封闭词类），不是测试特例——同 _NAME_STOP / _ROLE_WORDS 一样的停用词机制
+_CONJ = {"但", "但是", "可", "可是", "不过", "然而", "而", "而且", "就", "也",
+         "却", "只", "还", "又", "都", "那", "这", "然后", "所以", "因为",
+         "虽然", "尽管", "于是", "并且", "况且", "再说", "另外", "其实"}
 
 
 def _is_interrog(s: str) -> bool:
     return any(q in s for q in _INTERROG)
+
+
+# 整句是"提问/检索"而非"陈述事实"——绝不从问句里学事实（生产日志：问句被当事实存）
+def is_memory_query(text: str) -> bool:
+    t = (text or "").strip()
+    if t.endswith(("?", "？")):
+        return True
+    if re.search(r"(谁|哪个|哪些|几个|多少)", t):
+        return True
+    if re.search(r"(什么|啥)(来着|呢|吗|么)?\s*$", t):
+        return True
+    return bool(re.search(r"(是什么|叫什么|爱玩什么|喜欢什么|讨厌.{0,2}什么|吃什么|记不记得|还记不记得)", t))
+
+
+# 第三方主体：这些词作主语时，"喜欢X"是别人的喜好，不是用户的（日志：妈妈喜欢→记成我喜欢）
+_THIRD_PARTY = re.compile(
+    r"(我?妈妈?|我?爸爸?|我?爷爷?|我?奶奶?|外婆|外公|姥姥|姥爷|老师|同学|同桌|哥哥?|姐姐?|弟弟?|妹妹?"
+    r"|他们?|她们?|它|同事|老板|客户|教练|阿姨|叔叔|舅舅|大家)"
+)
+
+
+def _user_is_subject(seg: str) -> bool:
+    """seg=动词之前的片段。判断这段里'我'是不是离动词最近的主语（否则是第三方）。"""
+    tp = list(_THIRD_PARTY.finditer(seg))
+    if not tp:
+        return True
+    wo = seg.rfind("我")
+    return wo > tp[-1].start()      # "我"比最后一个第三方主语更靠近动词 → 我是主语
+
+
+# 子句切分 + 负向子句识别：线头按子句生成，否定/厌恶子句整段不产出正向线头
+_CLAUSE_SPLIT = re.compile(r"[，。！？!?,.;；：:、～~…\s]+")
+_NEG_CLAUSE = re.compile(r"[不没别甭]|讨厌|烦死?|腻|嫌|受不了|怕|烦人")
+
+
+def _is_third_party_clause(clause: str) -> bool:
+    """子句主语是第三方且用户未作为后续参与者出现 → 这子句是"别人的事"。
+    "我外公喜欢熬南瓜"(第三方后无我)True；"我妈妈带我去看电影"(第三方后有我)False。
+    必要性：content_runs 会把"外公"切成"公…"，逃过词级第三方过滤，须在子句级兜住。"""
+    tps = list(_THIRD_PARTY.finditer(clause))
+    if not tps:
+        return False
+    return "我" not in clause[tps[-1].end():]
+
+
+def clean_hook_tokens(text: str, negatives: list[str] | None = None) -> list[str]:
+    """开场线头候选清洗：线头是"下次主动惦记的、属于用户自己的正向话题"。按子句处理：
+    (1) 含否定/厌恶词的子句整段跳过（"但说实话我不爱吃面条"——content_runs 会吞掉"不"，
+        故须在子句层用否定词识别，否则"但说实话""喜欢吃面条"这类碎片会漏成线头）；
+    (2) 主语是第三方的子句整段跳过（"我外公喜欢熬南瓜"——是别人的事）；
+    (3) 子句内再剔除含第三方主语的片段、与厌恶重叠的片段、问句词。
+    这是泛化的钩子防污染（子句级否定/第三方 + 词级过滤），不针对任何特定句子。"""
+    negs = [n for n in (negatives or []) if n]
+    out: list[str] = []
+    for clause in _CLAUSE_SPLIT.split(text or ""):
+        if not clause or _NEG_CLAUSE.search(clause) or _is_third_party_clause(clause):
+            continue                                   # 负向/第三方子句不产出正向线头
+        for tok in zh.content_runs(clause):
+            if _THIRD_PARTY.search(tok) or _is_interrog(tok):
+                continue
+            if any(n in tok or tok in n for n in negs):
+                continue
+            if tok not in out:
+                out.append(tok)
+    return out
 _RELG = r"(朋友|同桌|同学|老师|哥哥|姐姐|弟弟|妹妹|闺蜜|发小|邻居|队友|死党)"
 _NM = r"[^\s，。！？!?的了好亲最就和跟与是]{1,4}"     # 通用名字片段
 _NM3 = r"[^\s，。！？!?的了对很太特好就和跟与是啊呀]{1,3}"  # 紧跟关系后的名字（更紧）
@@ -167,7 +256,9 @@ _PERSON_RES = [
 ]
 # 角色/关系泛称：永远不当作"具体人名"塞进用户档案（只有真名+关系才算"身边的人"）
 _ROLE_WORDS = _REL_WORDS | {"客户", "老板", "领导", "同事", "教练", "妈妈", "爸爸",
-                            "爷爷", "奶奶", "外婆", "外公", "姥姥", "姥爷", "老师"}
+                            "爷爷", "奶奶", "外婆", "外公", "姥姥", "姥爷", "老师",
+                            "我妈", "我爸", "我爷", "我奶", "阿姨", "叔叔", "舅舅", "那", "这",
+                            "那个", "这个", "他", "她", "它", "家伙", "那家伙"}
 # 带区分属性的同类实体："(我有一个)[打篮球]的[朋友](叫)[尼古拉]"——存属性，支持计数与按属性检索
 _QNUM = r"(?:[一二两三四五六七八九十0-9]+\s*[个位名]|个|俩|仨)?"
 _QATTR = r"([^，。！？!?的\s]{0,8})"
@@ -235,6 +326,8 @@ class MemoryBank:
     def extract_facts(self, text: str, mentioned_actors: list[str]) -> list[str]:
         """从用户原话提取语义事实，返回"新学到的事"列表（供奖励判断）。"""
         learned: list[str] = []
+        if is_memory_query(text):
+            return learned          # 问句是检索，不是事实——绝不学进记忆
         nm = _extract_user_name(text)
         if nm and self.user_name != nm:
             self.user_name = nm
@@ -273,9 +366,12 @@ class MemoryBank:
         for re_p in _PREFERENCE_RES:
             for m in re_p.finditer(text):
                 item = _strip_particles(m.group(1))
-                # "是"在词里多半是"X是Y"被泛模式吞了（已由品类化处理），跳过
-                if (item and "是" not in item and not _is_interrog(item)
-                        and item not in retracted and item not in cat_items):
+                # 只认"不/没"为否定（别在"特别"里——"我特别喜欢X"绝不是否定）
+                neg_before = m.start() > 0 and text[m.start() - 1] in "不没"
+                # 第三方主体（妈妈喜欢X）不是用户的偏好；前有"不/没"是否定（不喜欢吃X）；"是"多半是被吞的"X是Y"
+                if (item and "是" not in item and not _is_interrog(item) and not neg_before
+                        and item not in retracted and item not in cat_items and item not in _CONJ
+                        and _user_is_subject(text[: m.start()])):
                     if item in self.preferences:
                         self.preferences.remove(item)      # 重提/转移 → 提到最近
                     self.preferences.append(item)
@@ -284,7 +380,7 @@ class MemoryBank:
         for re_a in _AVERSION_RES:
             for m in re_a.finditer(text):
                 item = _strip_particles(m.group(1))
-                if (item and "是" not in item and not _is_interrog(item)
+                if (item and "是" not in item and not _is_interrog(item) and item not in _CONJ
                         and item not in retracted and item not in cat_items and item not in self.aversions):
                     self.aversions.append(item)
                     learned.append(f"不喜欢：{item}")
@@ -317,9 +413,8 @@ class MemoryBank:
                     self.cared = self.cared[-6:]
                     learned.append(f"最在乎：{item}")
                 break
-        for actor in mentioned_actors:
-            entry = self.people.setdefault(actor, {"relation": actor, "mentions": 0})
-            entry["mentions"] += 1
+        # 注意：不再把 mentioned_actors（朋友/妈妈/那 等泛称/代词）塞进 people——
+        # 只有"真名+关系"经上面的人物抽取才进 people（日志：朋友/我妈污染了人名库）
         return learned
 
     def user_profile_facts(self) -> dict:
