@@ -82,13 +82,15 @@ class Episode:
     sensitive: bool = False
     vulnerability: int = 0   # 表露深度：3=秘密级，不做开场钩子
     tags: list[str] = field(default_factory=list)
+    actors: list[str] = field(default_factory=list)   # 这件事涉及的人（已落到具体人名，事件图谱用）
+    place: str = ""                                    # 这件事发生的地点（抽到才有）
 
     def to_dict(self) -> dict:
         return self.__dict__.copy()
 
     @classmethod
     def from_dict(cls, d: dict) -> "Episode":
-        return cls(**d)
+        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
 
 @dataclass
@@ -344,6 +346,7 @@ class MemoryBank:
     def add_episode(
         self, text: str, valence: float, arousal: float, now: datetime,
         sensitive: bool = False, vulnerability: int = 0, tags: list[str] | None = None,
+        actors: list[str] | None = None, place: str = "",
     ) -> Episode:
         # 显著度：情绪越强记得越牢（闪光灯记忆的工程近似）
         salience = min(1.0, 0.3 + 0.4 * abs(valence) + 0.3 * arousal)
@@ -351,9 +354,30 @@ class MemoryBank:
             mid=_mid(text, now.isoformat()), text=text[:80], created_at=now.isoformat(),
             valence=valence, arousal=arousal, salience=salience,
             sensitive=sensitive, vulnerability=vulnerability, tags=tags or [],
+            actors=actors or [], place=place or "",
         )
         self.episodes.append(ep)
         return ep
+
+    def event_actors(self, text: str, role_actors: list[str]) -> list[str]:
+        """这件事涉及哪些"具体的人"——事件图谱以人为节点，得先把事件落到人名上。
+
+        (1) 文本里直接出现的已知人名（大壮/小林）；
+        (2) 角色泛称（同桌/老师）若在该用户档案里唯一对应一个人名，解析到那个人
+            （"同桌抢我橡皮" → 王浩，前提是王浩是唯一的同桌）。歧义则不强行连。
+        """
+        out: list[str] = []
+        for name in self.people:
+            if name and name not in _ROLE_WORDS and name in text and name not in out:
+                out.append(name)
+        for role in role_actors:
+            if role not in text:
+                continue
+            named = [n for n, info in self.people.items()
+                     if n not in _ROLE_WORDS and str(info.get("relation") or "") == role]
+            if len(named) == 1 and named[0] not in out:
+                out.append(named[0])
+        return out
 
     def extract_facts(self, text: str, mentioned_actors: list[str]) -> list[str]:
         """从用户原话提取语义事实，返回"新学到的事"列表（供奖励判断）。"""

@@ -240,6 +240,7 @@ def build_timeline(eng: CompanionEngine, user_id: str) -> dict:
             "salience": round(ep.salience, 3), "strength": round(strength, 3),
             "recalls": ep.recall_count, "vulnerable": ep.vulnerability >= 3,
             "days_ago": ago, "valence": round(ep.valence, 2),
+            "actors": ep.actors, "place": ep.place,
             "last_recalled": ep.last_recalled[:16] if ep.last_recalled else "",
         })
     memories.sort(key=lambda m: m["t"])
@@ -267,6 +268,12 @@ def build_timeline(eng: CompanionEngine, user_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def build_graph(eng: CompanionEngine, user_id: str) -> dict:
+    """记忆库知识图谱：以人为节点，事件把人连起来——什么人和谁在什么地方发生了什么事。
+
+    拓扑：人物（用户 + 身边的人）←参与→ 事件（情景记忆）→在→ 地点；
+    两个人通过共同事件相连（"和大壮在操场看星星" → 用户·大壮 同挂在那件事上）。
+    喜好/雷区/最在乎/专属梗作为用户的语义档案，轻量挂在用户旁。
+    """
     cfg = eng.config
     st = eng._state(user_id)
     now = datetime.now()
@@ -277,35 +284,13 @@ def build_graph(eng: CompanionEngine, user_id: str) -> dict:
     edges: list[dict] = []
     seen: set[str] = {"__user__"}
 
-    def add(nid: str, ntype: str, label: str, weight: float = 1.0, sub: str = "") -> str:
+    def add(nid: str, ntype: str, label: str, weight: float = 1.0, **extra) -> str:
         if nid not in seen:
-            node = {"id": nid, "type": ntype, "label": label, "weight": weight}
-            if sub:
-                node["sub"] = sub
-            nodes.append(node)
+            nodes.append({"id": nid, "type": ntype, "label": label, "weight": weight, **extra})
             seen.add(nid)
         return nid
 
-    # 反查：item → 品类（喜欢的水果是苹果 → 苹果.cat=水果）
-    item_cat = {v: k for k, v in m.cat_prefs.items()}
-    item_cat.update({v: k for k, v in m.cat_aversions.items()})
-
-    # 最在乎（核心，最靠近用户、最重）
-    for c in m.cared:
-        nid = add(f"care:{c}", "cared", c, 3.2)
-        edges.append({"source": "__user__", "target": nid, "rel": "最在乎", "kind": "cared"})
-
-    # 喜好
-    for p in m.preferences:
-        nid = add(f"like:{p}", "like", p, 2.0, sub=item_cat.get(p, ""))
-        edges.append({"source": "__user__", "target": nid, "rel": "喜欢", "kind": "like"})
-
-    # 雷区
-    for a in m.aversions:
-        nid = add(f"dislike:{a}", "dislike", a, 2.0, sub=item_cat.get(a, ""))
-        edges.append({"source": "__user__", "target": nid, "rel": "怕/讨厌", "kind": "dislike"})
-
-    # 身边的人（过滤泛称角色词；带属性与关系）
+    # 身边的人：以人为节点（过滤泛称角色词；带属性与关系）
     person_ids: dict[str, str] = {}
     for pname, info in m.people.items():
         if pname in _ROLE_WORDS:
@@ -314,43 +299,60 @@ def build_graph(eng: CompanionEngine, user_id: str) -> dict:
         attr = str(info.get("attr") or "")
         nid = add(f"person:{pname}", "person", pname, 2.4 + 0.3 * info.get("mentions", 0),
                   sub=(f"{attr}的{rel}" if attr else rel))
-        edges.append({"source": "__user__", "target": nid, "rel": rel, "kind": "person"})
         person_ids[pname] = nid
 
-    # 共同梗（关系文化）
-    for j in st.adaptation.inside_jokes:
-        nid = add(f"joke:{j.jid}", "joke", j.label, 2.0)
-        edges.append({"source": "__user__", "target": nid, "rel": "专属梗", "kind": "joke"})
-
-    # 记忆（最显著的若干条情景记忆；与它提到的人物/喜好交叉连线，形成知识结构）
+    # 事件（情景记忆）：把人连起来的边。优先取"有人物/有地点"的社交事件，再按显著度补足。
     ep_scored = []
     for ep in m.episodes:
         if ep.sensitive:
             continue
         strength, ago = _ep_strength(ep, cfg, now)
-        ep_scored.append((strength, ago, ep))
-    ep_scored.sort(key=lambda x: -x[0])
-    for strength, ago, ep in ep_scored[:12]:
-        nid = add(f"mem:{ep.mid}", "memory", ep.text, 0.8 + 2.4 * strength)
-        nodes[-1]["strength"] = round(strength, 3)
-        nodes[-1]["days_ago"] = ago
-        edges.append({"source": "__user__", "target": nid, "kind": "memory"})
-        # 交叉连线：这条记忆提到了哪位身边的人 / 哪个喜好
-        for pname, pid in person_ids.items():
-            if pname in ep.text:
-                edges.append({"source": nid, "target": pid, "kind": "ref"})
-        for p in m.preferences:
-            if p in ep.text:
-                edges.append({"source": nid, "target": f"like:{p}", "kind": "ref"})
+        social = bool(ep.actors) or bool(ep.place)
+        ep_scored.append((social, strength, ago, ep))
+    ep_scored.sort(key=lambda x: (-int(x[0]), -x[1]))     # 社交事件优先，再按当前鲜明度
+    place_ids: dict[str, str] = {}
+    shown_events = 0
+    for social, strength, ago, ep in ep_scored[:12]:
+        eid = add(f"ev:{ep.mid}", "event", ep.text, 1.0 + 2.2 * strength,
+                  strength=round(strength, 3), days_ago=ago, place=ep.place,
+                  actors=ep.actors, valence=round(ep.valence, 2))
+        shown_events += 1
+        edges.append({"source": "__user__", "target": eid, "kind": "attend"})   # 用户是每件事的主角
+        for actor in ep.actors:                                                 # 事件涉及的其他人
+            if actor in person_ids:
+                edges.append({"source": person_ids[actor], "target": eid, "kind": "attend"})
+        if ep.place:                                                            # 在什么地方
+            pid = place_ids.get(ep.place) or add(f"place:{ep.place}", "place", ep.place, 1.8)
+            place_ids[ep.place] = pid
+            edges.append({"source": eid, "target": pid, "kind": "at"})
+
+    # 反查：item → 品类（喜欢的水果是苹果 → 苹果.cat=水果）
+    item_cat = {v: k for k, v in m.cat_prefs.items()}
+    item_cat.update({v: k for k, v in m.cat_aversions.items()})
+
+    # 用户的语义档案：最在乎 / 喜好 / 雷区 / 专属梗——轻量挂在用户旁
+    for c in m.cared:
+        nid = add(f"care:{c}", "cared", c, 2.6)
+        edges.append({"source": "__user__", "target": nid, "rel": "最在乎", "kind": "cared"})
+    for p in m.preferences:
+        nid = add(f"like:{p}", "like", p, 1.6, sub=item_cat.get(p, ""))
+        edges.append({"source": "__user__", "target": nid, "rel": "喜欢", "kind": "like"})
+    for a in m.aversions:
+        nid = add(f"dislike:{a}", "dislike", a, 1.6, sub=item_cat.get(a, ""))
+        edges.append({"source": "__user__", "target": nid, "rel": "怕/讨厌", "kind": "dislike"})
+    for jk in st.adaptation.inside_jokes:
+        nid = add(f"joke:{jk.jid}", "joke", jk.label, 1.6)
+        edges.append({"source": "__user__", "target": nid, "rel": "专属梗", "kind": "joke"})
 
     sealed = sum(1 for e in m.episodes if e.sensitive)
     return {
         "user_id": user_id, "name": name, "stage_zh": STAGE_ZH.get(st.core.stage.value, ""),
         "nodes": nodes, "edges": edges, "sealed_count": sealed,
         "counts": {
-            "people": len(person_ids), "likes": len(m.preferences),
-            "dislikes": len(m.aversions), "cared": len(m.cared),
-            "jokes": len(st.adaptation.inside_jokes), "memories": len(ep_scored),
+            "people": len(person_ids), "places": len(place_ids), "events": shown_events,
+            "likes": len(m.preferences), "dislikes": len(m.aversions),
+            "cared": len(m.cared), "jokes": len(st.adaptation.inside_jokes),
+            "memories": len(ep_scored),
         },
     }
 

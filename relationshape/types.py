@@ -160,6 +160,7 @@ class ConversationFrame:
     target: EmotionTarget = EmotionTarget.TOPIC
     bid: BidType = BidType.CONNECTION
     actors: list[str] = field(default_factory=list)      # 提到的外部人物（妈妈/老师/客户…）
+    place: Optional[str] = None                           # 事件发生的地点（在学校/去医务室…），抽不到为 None
     topic_tokens: list[str] = field(default_factory=list)
     action: Optional[str] = None                          # 发生了什么（改需求/批评…）
     is_question: bool = False

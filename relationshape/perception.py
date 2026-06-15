@@ -70,6 +70,21 @@ _EMO_LEXICON: list[tuple[re.Pattern, str, float, float]] = [
 
 _NEG_EVENT_RE = re.compile(r"(批评|骂|凶|催|改需求|加班|放鸽子|抢|欺负|嘲笑|针对|误会|吵架|罚|拖堂|作业(好多|写不完))")
 
+# 地点抽取：闭集词典（高精度优先，宁可漏不可错）。长词在前，优先匹配"篮球场"而非"球场"。
+# 事件图谱里的"在什么地方"——一句话里出现这些场所词，基本就是事件发生地。
+_PLACE_WORDS = (
+    "篮球场", "足球场", "体育馆", "游乐场", "动物园", "图书馆", "医务室",
+    "天文台", "美术室", "音乐教室", "实验室", "操场", "球场", "教室", "食堂",
+    "公园", "商场", "超市", "医院", "学校", "班里", "班上", "家里", "房间",
+    "楼下", "路上", "河边", "海边", "公交车", "地铁", "电影院", "游泳池", "家",
+)
+_PLACE_RE = re.compile(r"(?:在|去了?|到了?|回到?)?(" + "|".join(_PLACE_WORDS) + r")")
+
+
+def _find_place(text: str) -> Optional[str]:
+    m = _PLACE_RE.search(text)
+    return m.group(1) if m else None
+
 
 # 可插拔情绪后端：模型分类器从这里接入（设计契约：感知实现可整体替换）。
 # 只影响情绪读数；对角色的二人称模式路由（攻击/夸/安抚/拒绝）始终走规则，
@@ -130,6 +145,7 @@ def perceive(text: str) -> tuple[ConversationFrame, UserEmotionReading]:
     frame.asks_advice = zh.asks_advice(t)
     frame.topic_tokens = zh.content_runs(t)[:6]
     frame.actors = _find_actors(t)
+    frame.place = _find_place(t)
 
     label, valence, arousal, conf = _detect_emotion(t)
 

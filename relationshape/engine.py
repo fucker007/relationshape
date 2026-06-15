@@ -492,6 +492,8 @@ class CompanionEngine:
                 st.memory.add_episode(
                     user_text, reading.valence, reading.arousal, now,
                     vulnerability=frame.disclosure_depth,
+                    actors=st.memory.event_actors(user_text, frame.actors),
+                    place=frame.place or "",
                 )
             record_substantive_turn(st.ledger, frame.disclosure_depth)
             # 秘密级表露：社会渗透理论里的高价值时刻，单独钉在时间线上

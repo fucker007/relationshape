@@ -220,9 +220,9 @@ const EVENT_META={
   joke:{i:"😄",zh:"诞生专属梗",c:"#e8a13e"}, safety:{i:"🛡",zh:"危机·封存",c:"#8a86b8"},
 };
 const NODE_META={
-  user:{c:"#3a3530",zh:"TA"}, person:{c:"#5b8bd0",zh:"身边的人"}, like:{c:"#5fae8c",zh:"喜欢"},
-  dislike:{c:"#e07a6b",zh:"雷区"}, cared:{c:"#e8638a",zh:"最在乎"}, joke:{c:"#e8a13e",zh:"专属梗"},
-  memory:{c:"#c79a5b",zh:"记忆"},
+  user:{c:"#3a3530",zh:"TA"}, person:{c:"#5b8bd0",zh:"人物"}, event:{c:"#d99a4e",zh:"事件"},
+  place:{c:"#3f9e8a",zh:"地点"}, cared:{c:"#e8638a",zh:"最在乎"}, like:{c:"#5fae8c",zh:"喜欢"},
+  dislike:{c:"#e07a6b",zh:"雷区"}, joke:{c:"#e8a13e",zh:"专属梗"},
 };
 const MAJOR=new Set(["meet","reunion","stage_up","stage_down","milestone","rupture","repair","disclosure","promise","promise_kept","promise_missed","joke","safety"]);
 
@@ -456,7 +456,8 @@ function drawMemoryLane(host,d){
   let dots="";
   for(const m of d.memories){const px=x(m.t),py=yS(m.strength),r=2.4+5*m.strength;
     const col=m.valence>0.15?"#d99a4e":m.valence<-0.15?"#7fa3c9":"#bdae93";
-    dots+=`<g class="pin" data-tip="${esc('「'+m.text+'」')}" data-t="${esc(m.days_ago+'天前形成 · 当前鲜明度'+Math.round(m.strength*100)+'%'+(m.recalls?(' · 被想起'+m.recalls+'次'):'')+(m.vulnerable?' · 🔒秘密级':''))}">
+    const tags=(m.actors&&m.actors.length?' · 👥'+m.actors.join('、'):'')+(m.place?' · 📍'+m.place:'');
+    dots+=`<g class="pin" data-tip="${esc('「'+m.text+'」'+tags)}" data-t="${esc(m.days_ago+'天前形成 · 当前鲜明度'+Math.round(m.strength*100)+'%'+(m.recalls?(' · 被想起'+m.recalls+'次'):'')+(m.vulnerable?' · 🔒秘密级':''))}">
       <circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${r.toFixed(1)}" fill="${shadeA(col,.5+.5*m.strength)}" stroke="${col}" stroke-width="1"/>
       ${m.vulnerable?`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${(r+2.5).toFixed(1)}" fill="none" stroke="${col}" stroke-width="1" stroke-dasharray="2 2"/>`:""}
       ${m.recalls?`<circle cx="${(px+r+1).toFixed(1)}" cy="${(py-r).toFixed(1)}" r="1.6" fill="#5fae8c"/>`:""}</g>`}
@@ -477,8 +478,9 @@ function drawFeed(host,d){
   for(const e of d.events){const m=EVENT_META[e.kind]||{i:"•",c:"#999",zh:e.kind};
     items.push({t:e.t,sort:e.t,icon:m.i,c:m.c,label:e.label||m.zh,detail:e.detail||"",trust:e.trust,mem:false})}
   for(const m of d.memories){
+    const tags=(m.actors&&m.actors.length?` · 👥${m.actors.join("、")}`:"")+(m.place?` · 📍${m.place}`:"");
     items.push({t:m.t,sort:m.t,icon:"🧠",c:"#c79a5b",label:m.text,
-      detail:`鲜明度 ${Math.round(m.strength*100)}%${m.recalls?` · 被想起 ${m.recalls} 次`:""}${m.vulnerable?" · 🔒秘密级":""}`,
+      detail:`鲜明度 ${Math.round(m.strength*100)}%${m.recalls?` · 被想起 ${m.recalls} 次`:""}${m.vulnerable?" · 🔒秘密级":""}${tags}`,
       strength:m.strength,mem:true})}
   items.sort((a,b)=>a.sort<b.sort?1:a.sort>b.sort?-1:0);
   host.innerHTML=items.map(it=>`
@@ -507,7 +509,7 @@ async function viewGraph(uid){
   const cn=d.counts;
   body.innerHTML=`
     <div class="panel">
-      <h2>记忆库 · 知识图谱 <span class="tip">以 ${esc(d.name)} 为中心，向身边的人/喜好/雷区/最在乎/专属梗/记忆辐射 · 可拖动、滚轮缩放</span></h2>
+      <h2>记忆库 · 知识图谱 <span class="tip">以人为节点，事件把人连起来——谁·和谁·在什么地方·发生了什么 · 可拖动、滚轮缩放</span></h2>
       <div class="graph-wrap">
         <canvas id="graph"></canvas>
         <div class="glegend"><h4>图例</h4>${legend}</div>
@@ -515,14 +517,28 @@ async function viewGraph(uid){
         <div class="ghint">拖动节点整理布局 · 滚轮缩放 · 空白处拖拽平移</div>
       </div>
       <div class="legend" style="margin-top:12px">
-        <span>👤 身边的人 ${cn.people}</span><span>❤ 喜好 ${cn.likes}</span><span>✋ 雷区 ${cn.dislikes}</span>
-        <span>⭐ 最在乎 ${cn.cared}</span><span>😄 专属梗 ${cn.jokes}</span>
-        <span>🧠 记忆 ${cn.memories}（图谱展示最显著的）</span>
+        <span>👤 人物 ${cn.people}</span><span>📅 事件 ${cn.events}</span><span>📍 地点 ${cn.places}</span>
+        <span>⭐ 最在乎 ${cn.cared}</span><span>❤ 喜好 ${cn.likes}</span><span>✋ 雷区 ${cn.dislikes}</span>
+        <span>😄 梗 ${cn.jokes}</span>
         ${d.sealed_count?`<span style="color:var(--secret)">🛡 封存 ${d.sealed_count}（不入图谱）</span>`:""}
       </div>
     </div>`;
   if(GRAPH)GRAPH.destroy();
   GRAPH=new ForceGraph(document.getElementById("graph"),d);
+}
+
+function gNodeDesc(n){
+  if(n.type==="event"){
+    const bits=[];
+    if(n.actors&&n.actors.length)bits.push("👥 和 "+n.actors.map(esc).join("、"));
+    if(n.place)bits.push("📍 "+esc(n.place));
+    bits.push(`${n.days_ago??"?"} 天前 · 当前鲜明度 ${Math.round((n.strength||0)*100)}%`);
+    return bits.join("<br>");
+  }
+  if(n.type==="place")return "事件发生地";
+  if(n.type==="user")return "这段关系的中心";
+  if(n.type==="person")return n.sub?esc(n.sub):"身边的人";
+  return (n.sub?esc(n.sub)+" · ":"")+(NODE_META[n.type]||{zh:""}).zh;
 }
 
 class ForceGraph{
@@ -535,9 +551,10 @@ class ForceGraph{
       (this.adj[e.target]=this.adj[e.target]||new Set()).add(e.source)});
     this.cam={x:0,y:0,z:1};this.alpha=1;this.hover=null;this.drag=null;this.panning=null;this.sel=null;
     // seed positions: clusters by type angle
-    const ang={person:-1.3,like:0.5,dislike:2.2,cared:-2.4,joke:1.5,memory:3.0,user:0};
+    const ang={person:-1.1,event:1.3,place:2.5,cared:-2.5,like:0.2,dislike:1.9,joke:-1.9,user:0};
     let k=0;this.nodes.forEach(n=>{if(n.id==="__user__"){n.x=0;n.y=0;return}
-      const a=(ang[n.type]||0)+(k++%7-3)*0.16+Math.random()*.3;const rad=120+(n.type==="memory"?120:40)+Math.random()*40;
+      const a=(ang[n.type]||0)+(k++%7-3)*0.16+Math.random()*.3;
+      const rad=120+(n.type==="event"?80:n.type==="place"?150:40)+Math.random()*40;
       n.x=Math.cos(a)*rad;n.y=Math.sin(a)*rad});
     this.resize();this._ro=new ResizeObserver(()=>this.resize());this._ro.observe(canvas);
     this.bind();this.running=true;this.loop();
@@ -546,10 +563,11 @@ class ForceGraph{
     this.W=r.width;this.Hh=r.height;this.cv.width=r.width*dpr;this.cv.height=r.height*dpr;
     this.ctx.setTransform(dpr,0,0,dpr,0,0)}
   s2w(sx,sy){return{x:(sx-this.W/2)/this.cam.z-this.cam.x,y:(sy-this.Hh/2)/this.cam.z-this.cam.y}}
-  radius(n){if(n.type==="user")return 30;if(n.type==="memory")return 7+9*(n.strength||0.2);
+  radius(n){if(n.type==="user")return 30;if(n.type==="event")return 8+9*(n.strength||0.2);
+    if(n.type==="place")return 14;if(n.type==="person")return 13+2*Math.min(3,n.weight||1);
     return 11+2.4*Math.min(3,(n.weight||1))}
-  linkLen(e){const t=this.byId[e.target].type;if(e.kind==="ref")return 64;
-    return({cared:78,person:128,like:120,dislike:120,joke:120,memory:172})[e.kind]||120}
+  linkLen(e){const k=e.kind;if(k==="at")return 56;if(k==="attend")return 124;
+    return({cared:74,like:96,dislike:96,joke:96})[k]||110}
   step(){
     const n=this.nodes,rep=2600;
     for(let i=0;i<n.length;i++){const a=n[i];
@@ -565,6 +583,13 @@ class ForceGraph{
     const u=this.byId["__user__"];if(u&&u!==this.drag){u.x*=0.8;u.y*=0.8}
     if(this.alpha>0.04)this.alpha*=0.992}
   loop(){if(!this.running)return;this.step();this.draw();requestAnimationFrame(()=>this.loop())}
+  _path(c,nd,r){
+    if(nd.type==="event"){const w=r*1.3,h=r,rad=Math.min(6,h*0.6),x=nd.x-w,y=nd.y-h,X=nd.x+w,Y=nd.y+h;
+      c.beginPath();c.moveTo(x+rad,y);c.lineTo(X-rad,y);c.arcTo(X,y,X,y+rad,rad);
+      c.lineTo(X,Y-rad);c.arcTo(X,Y,X-rad,Y,rad);c.lineTo(x+rad,Y);c.arcTo(x,Y,x,Y-rad,rad);
+      c.lineTo(x,y+rad);c.arcTo(x,y,x+rad,y,rad);c.closePath();
+    }else{c.beginPath();c.arc(nd.x,nd.y,r,0,7);}
+  }
   draw(){const c=this.ctx,W=this.W,H=this.Hh;c.clearRect(0,0,W,H);
     c.save();c.translate(W/2,H/2);c.scale(this.cam.z,this.cam.z);c.translate(this.cam.x,this.cam.y);
     const hl=this.hover||this.sel;const near=hl?this.adj[hl.id]:null;
@@ -576,20 +601,26 @@ class ForceGraph{
       c.lineWidth=e.kind==="ref"?1:(on?1.8:1.1);c.stroke()}
     for(const nd of this.nodes){const r=this.radius(nd);const meta=NODE_META[nd.type]||{c:"#999"};
       const dim=hl&&nd!==hl&&!(near&&near.has(nd.id));
-      c.globalAlpha=dim?0.32:1;
-      c.beginPath();c.arc(nd.x,nd.y,r,0,7);
+      c.globalAlpha=dim?0.3:1;
+      this._path(c,nd,r);
       if(nd.type==="user"){const g=c.createRadialGradient(nd.x-6,nd.y-6,4,nd.x,nd.y,r);
         g.addColorStop(0,"#5a524a");g.addColorStop(1,"#322c26");c.fillStyle=g}
       else c.fillStyle=meta.c;
       c.fill();
       if(nd===hl){c.lineWidth=2.5;c.strokeStyle="#fffdfa";c.stroke();
-        c.beginPath();c.arc(nd.x,nd.y,r+3.5,0,7);c.strokeStyle=shadeA(meta.c,.6);c.lineWidth=1.6;c.stroke()}
+        this._path(c,nd,r+3.5);c.strokeStyle=shadeA(meta.c,.6);c.lineWidth=1.6;c.stroke()}
       else{c.lineWidth=1.6;c.strokeStyle="rgba(255,253,250,.85)";c.stroke()}
+      // place pin marker
+      if(nd.type==="place"){c.globalAlpha=dim?0.4:1;c.fillStyle="#fff";c.font="11px sans-serif";
+        c.textAlign="center";c.textBaseline="middle";c.fillText("📍",nd.x,nd.y-0.5)}
       // labels
       c.globalAlpha=dim?0.4:1;c.textAlign="center";c.textBaseline="middle";
       if(nd.type==="user"){c.fillStyle="#fff";c.font="600 14px PingFang SC,sans-serif";c.fillText(nd.label,nd.x,nd.y)}
-      else{c.fillStyle="#4a423a";c.font="12px PingFang SC,sans-serif";
-        const lab=nd.label.length>9?nd.label.slice(0,9)+"…":nd.label;c.fillText(lab,nd.x,nd.y+r+11)}
+      else if(nd.type!=="place"){c.fillStyle=nd.type==="event"?"#5a4a32":"#4a423a";
+        c.font=(nd.type==="person"?"600 ":"")+"12px PingFang SC,sans-serif";
+        const max=nd.type==="event"?11:9,lab=nd.label.length>max?nd.label.slice(0,max)+"…":nd.label;
+        c.fillText(lab,nd.x,nd.y+r+(nd.type==="event"?13:11))}
+      else{c.fillStyle="#357a6b";c.font="11px PingFang SC,sans-serif";c.fillText(nd.label,nd.x,nd.y+r+11)}
     }
     c.globalAlpha=1;c.restore()}
   pick(sx,sy){const w=this.s2w(sx,sy);let best=null,bd=1e9;
@@ -603,7 +634,7 @@ class ForceGraph{
       if(this.drag){const w=this.s2w(p.x,p.y);this.drag.x=w.x;this.drag.y=w.y;this.alpha=Math.max(this.alpha,0.3)}
       else if(this.panning){this.cam.x=this.panning.cx+(p.x-this.panning.x)/this.cam.z;this.cam.y=this.panning.cy+(p.y-this.panning.y)/this.cam.z}
       else{const n=this.pick(p.x,p.y);this.hover=n;cv.style.cursor=n?"pointer":"grab";
-        if(n)showTip(`<b>${esc(n.label)}</b>${n.sub?"<br>"+esc(n.sub):""}${n.type==="memory"?"<br>记忆 · 当前鲜明度 "+Math.round((n.strength||0)*100)+"%":"<br>"+NODE_META[n.type].zh}`,e.clientX,e.clientY);
+        if(n)showTip(`<b>${esc(n.label)}</b><br>${gNodeDesc(n)}`,e.clientX,e.clientY);
         else hideTip()}};
     this._up=()=>{this.drag=null;this.panning=null};
     this._wh=e=>{e.preventDefault();const f=Math.exp(-e.deltaY*0.0012);
@@ -617,9 +648,7 @@ class ForceGraph{
     p.classList.add("show");
     p.innerHTML=`<span class="gtype" style="background:${meta.c}">${meta.zh}</span>
       <div class="gname">${esc(n.label)}</div>
-      <div class="gsub">${n.sub?esc(n.sub)+"<br>":""}${
-        n.type==="memory"?`形成于 ${n.days_ago??"?"} 天前 · 当前鲜明度 ${Math.round((n.strength||0)*100)}%`
-        :n.type==="user"?"这段关系的中心":"与 "+esc(n.label)+" 相连"}</div>
+      <div class="gsub">${gNodeDesc(n)}</div>
       <div class="gsub" style="margin-top:8px;color:var(--sub)">相连 ${(this.adj[n.id]||{size:0}).size||0} 项</div>`}
   hidePanel(){const p=document.getElementById("gpanel");if(p)p.classList.remove("show")}
   destroy(){this.running=false;this._ro.disconnect();
