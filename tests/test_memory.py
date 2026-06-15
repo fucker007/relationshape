@@ -62,6 +62,19 @@ def test_secret_disclosure_not_used_as_greeting_hook():
     assert any("怕输" in h.text for h in hits)
 
 
+def test_recent_highlight_handles_future_episode_timestamp():
+    bank = MemoryBank()
+    bank.add_episode("我明天要画画比赛了", valence=0.4, arousal=0.5, now=T0 + timedelta(days=10))
+    assert bank.recent_highlight(T0) is None
+
+
+def test_recall_skips_future_episode_timestamp():
+    bank = MemoryBank()
+    bank.add_episode("我明天要画画比赛了", valence=0.4, arousal=0.5, now=T0 + timedelta(days=10))
+    hits = bank.recall("画画比赛怎么样", T0, k=3, half_life_days=14)
+    assert not hits
+
+
 def test_promise_lifecycle():
     bank = MemoryBank()
     p = bank.detect_character_promise("好呀！下次我给你讲恐龙的故事", T0, session_index=2)

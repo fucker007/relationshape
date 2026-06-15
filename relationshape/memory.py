@@ -28,6 +28,34 @@ def _strip_particles(item: str) -> str:
     return re.sub(r"[了的呢啊呀哦吧啦嘛]+$", "", item or "")
 
 
+def _looks_like_self_name(name: str) -> bool:
+    if any(word in name for word in ("什么", "啥", "哪个", "哪一个")):
+        return False
+    if "名字" in name and len(name) <= 4:
+        return False
+    return True
+
+
+def _looks_like_bare_self_name(name: str) -> bool:
+    if not _looks_like_self_name(name):
+        return False
+    if name in {"学生", "老师", "男生", "女生", "小孩", "孩子", "用户", "人类"}:
+        return False
+    return "·" in name or len(name) >= 4
+
+
+def _extract_user_name(text: str) -> str | None:
+    for pattern, validator in _NAME_RES:
+        m = pattern.search(text)
+        if not m:
+            continue
+        name = re.sub(r"(吗|呢|呀|哦|吧|啦|嘛)+$", "", m.group(1).strip())
+        if not name or not validator(name):
+            continue
+        return name
+    return None
+
+
 @dataclass
 class Episode:
     mid: str
@@ -70,7 +98,14 @@ class Promise:
 
 _PREFERENCE_RE = re.compile(r"我(最|特别|超|很)?(喜欢|爱|想学|在学|迷上)([^，。！？!?\s]{1,12})")
 _AVERSION_RE = re.compile(r"我(最|特别|超|很)?(讨厌|怕|害怕|受不了)([^，。！？!?\s]{1,12})")
-_NAME_RE = re.compile(r"我叫([^\s，。！？!?]{1,8})")
+_NAME_RES = (
+    (re.compile(r"我叫(?!什么|啥|哪|何)([^\s，。！？!?]{1,20})"), _looks_like_self_name),
+    (re.compile(r"我的名字(?:叫|是)(?!什么|啥|哪|何)([^\s，。！？!?]{1,20})"), _looks_like_self_name),
+    (
+        re.compile(r"我是(?!谁|什么|啥|哪|何|一个|一名|个|在|想|很|不|没|来|说|觉得)([^\s，。！？!?]{1,20})"),
+        _looks_like_bare_self_name,
+    ),
+)
 _PERSON_RE = re.compile(r"([^\s，。！？!?]{1,6})是我(最好)?的?(朋友|同桌|同学|老师|哥|姐|弟|妹|闺蜜)")
 
 # 角色承诺的口头模式："下次我给你讲…" "明天我们…"
@@ -107,9 +142,9 @@ class MemoryBank:
     def extract_facts(self, text: str, mentioned_actors: list[str]) -> list[str]:
         """从用户原话提取语义事实，返回"新学到的事"列表（供奖励判断）。"""
         learned: list[str] = []
-        m = _NAME_RE.search(text)
-        if m and self.user_name != m.group(1):
-            self.user_name = m.group(1)
+        user_name = _extract_user_name(text)
+        if user_name and self.user_name != user_name:
+            self.user_name = user_name
             learned.append(f"名字：{self.user_name}")
         for m in _PREFERENCE_RE.finditer(text):
             item = _strip_particles(m.group(3))
@@ -156,7 +191,9 @@ class MemoryBank:
             if ep.sensitive:
                 continue
             created = datetime.fromisoformat(ep.created_at)
-            days = max(0.0, (now - created).total_seconds() / 86400.0)
+            days = (now - created).total_seconds() / 86400.0
+            if days < 0:
+                continue
             overlap = zh.jaccard(qb, zh.bigrams(ep.text))
             if overlap <= 0.02:
                 continue
@@ -186,16 +223,25 @@ class MemoryBank:
         for ep in self.episodes:
             if ep.sensitive or ep.vulnerability >= 3:
                 continue
-            days = (now - datetime.fromisoformat(ep.created_at)).total_seconds() / 86400.0
+            try:
+                created_at = datetime.fromisoformat(ep.created_at)
+            except ValueError:
+                continue
+            days = (now - created_at).total_seconds() / 86400.0
+            if days < 0:
+                continue
             if days > 10:
                 continue
-            score = ep.salience * (1.0 / (1.0 + days / 5.0))
+            denom = max(1e-6, 1.0 + days / 5.0)
+            if denom <= 0:
+                continue
+            score = ep.salience * (1.0 / denom)
             if best is None or score > best[0]:
                 best = (score, ep)
         if best is None:
             return None
         ep = best[1]
-        days_ago = int((now - datetime.fromisoformat(ep.created_at)).total_seconds() / 86400.0)
+        days_ago = int(max(0.0, (now - datetime.fromisoformat(ep.created_at)).total_seconds() / 86400.0))
         return MemoryRecall(
             text=ep.text, kind="episode", score=round(best[0], 3), days_ago=days_ago,
             hint="开场可以像朋友惦记一样问起这件事的后续",
@@ -211,6 +257,62 @@ class MemoryBank:
                     hint="可以用对方的喜好接话",
                 ))
         return out[:k]
+
+    def recall_semantic_facts(self, query_text: str, k: int = 6) -> list[MemoryRecall]:
+        """按语义问题召回稳定事实，不依赖用户再次说出同一个槽位词。
+
+        这层只处理确定性语义记忆（偏好、雷区、身边的人），避免把情景回忆
+        的词面重叠当作"记住了"。
+        """
+        text = re.sub(r"\s+", "", query_text or "")
+        out: list[MemoryRecall] = []
+
+        asks_preferences = bool(re.search(r"(偏好|喜好|爱好|喜欢什么|爱什么|爱吃什么|爱玩什么|记得我喜欢)", text))
+        asks_aversions = bool(re.search(r"(雷区|讨厌什么|不喜欢什么|怕什么|害怕什么|受不了什么|记得我讨厌)", text))
+        asks_people = bool(re.search(r"(谁是我的|我的朋友|我的同桌|我的同学|我的老师|身边的人|我认识谁)", text))
+
+        if asks_preferences:
+            for pref in self.preferences[-k:]:
+                out.append(MemoryRecall(
+                    text=f"用户喜欢{pref}", kind="preference", score=0.8, days_ago=0,
+                    hint="用户问自己的偏好时，这是确定事实，直接回答",
+                ))
+
+        if asks_aversions:
+            for item in self.aversions[-k:]:
+                out.append(MemoryRecall(
+                    text=f"用户讨厌{item}", kind="aversion", score=0.8, days_ago=0,
+                    hint="用户问自己的雷区时，这是确定事实，直接回答",
+                ))
+
+        if asks_people:
+            for name, entry in list(self.people.items())[-k:]:
+                relation = str(entry.get("relation") or "熟人")
+                if relation in text or "谁是我的" in text or "身边的人" in text or "我认识谁" in text:
+                    out.append(MemoryRecall(
+                        text=f"{name}是用户的{relation}", kind="person", score=0.75, days_ago=0,
+                        hint="用户问身边的人时，这是确定关系，直接回答",
+                    ))
+        else:
+            for name, entry in self.people.items():
+                if name and name in text:
+                    relation = str(entry.get("relation") or "熟人")
+                    out.append(MemoryRecall(
+                        text=f"{name}是用户的{relation}", kind="person", score=0.75, days_ago=0,
+                        hint="用户问这个人是谁时，这是确定关系，直接回答",
+                    ))
+
+        seen: set[tuple[str, str]] = set()
+        deduped: list[MemoryRecall] = []
+        for item in out:
+            key = (item.kind, item.text)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+            if len(deduped) >= k:
+                break
+        return deduped
 
     # ------------------------------------------------------------------ 承诺
 
@@ -265,5 +367,11 @@ class MemoryBank:
         bank.aversions = d.get("aversions", [])
         bank.people = d.get("people", {})
         bank.user_name = d.get("user_name")
+        if not bank.user_name or any(word in str(bank.user_name) for word in ("什么", "啥", "哪个", "哪一个")):
+            for ep in reversed(bank.episodes):
+                name = _extract_user_name(ep.text)
+                if name:
+                    bank.user_name = name
+                    break
         bank.promises = [Promise.from_dict(p) for p in d.get("promises", [])]
         return bank

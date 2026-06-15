@@ -20,6 +20,7 @@ from relationshape import CompanionEngine, EngineConfig  # noqa: E402
 
 USER = "小禾"
 T0 = datetime(2026, 1, 1, 18, 30)
+DEMO_STATE_DIR = Path("runtime/demo_state")
 
 # (天数偏移, 当天的对话)
 SCRIPT: list[tuple[int, list[str]]] = [
@@ -39,7 +40,10 @@ SCRIPT: list[tuple[int, list[str]]] = [
 
 
 def fast_forward() -> None:
-    eng = CompanionEngine(config=EngineConfig(state_dir="runtime/demo_state"))
+    demo_user_state = DEMO_STATE_DIR / f"{USER}.json"
+    if demo_user_state.exists():
+        demo_user_state.unlink()
+    eng = CompanionEngine(config=EngineConfig(state_dir=str(DEMO_STATE_DIR)))
     print("=" * 64)
     print("relationshape 关系生长模拟：30 天，从陌生到同伴")
     print("=" * 64)

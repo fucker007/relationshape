@@ -8,3 +8,7 @@ build/
 eval/data/
 eval/.e2e_checkpoint.jsonl
 eval/.e2e_state/
+eval/.deepseek_e2e_checkpoint.jsonl
+eval/.deepseek_e2e_state/
+eval/.deepseek_smile_ab_checkpoint.jsonl
+eval/.deepseek_smile_ab_state/

@@ -60,7 +60,8 @@ class MemorySystemAdapter:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=timeout or self.timeout) as resp:
             return json.loads(resp.read().decode())
 
     @staticmethod

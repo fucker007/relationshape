@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -152,6 +153,7 @@ class CompanionEngine:
         # ---- 记忆召回 ----
         memories = st.memory.recall(text, now, self.config.max_recall, self.config.memory_half_life_days)
         memories += st.memory.recall_preferences(text)
+        memories += st.memory.recall_semantic_facts(text)
         if is_session_start and not memories and frame.input_type == InputType.GREETING:
             highlight = st.memory.recent_highlight(now)
             if highlight:
@@ -273,6 +275,7 @@ class CompanionEngine:
         # ---- 本体论身份层：每轮一行立场；身世轮注入全量设定与自述账本 ----
         directive.identity_line = f"{self.identity.name}——{self.identity.ontology_stance}"
         directive.profile_summary = profile_summary
+        directive.user_name = st.memory.user_name
         if frame.input_type == InputType.ONTOLOGY_QUESTION:
             directive.self_canon = list(self.identity.self_canon)
             directive.self_claims = list(st.adaptation.self_claims)
@@ -349,8 +352,15 @@ class CompanionEngine:
         if frame is None or reading is None:
             # 无 prepare 的直接提交（如历史导入）：感知与语义事实在这里补做
             frame, reading = perceive(user_text)
-            st.memory.extract_facts(user_text, frame.actors)
-            st.adaptation.maybe_learn_address(user_text)
+        known_user_name = st.memory.user_name or ""
+        learned_facts = st.memory.extract_facts(user_text, frame.actors)
+        learned_user_name = any(fact.startswith("名字：") for fact in learned_facts)
+        is_user_name_intro = bool(
+            known_user_name
+            and known_user_name in user_text
+            and re.search(r"(我叫|我的名字(?:叫|是)|我是)", user_text)
+        )
+        st.adaptation.maybe_learn_address(user_text)
 
         # ---- 幽默学习：先看用户对上一轮幽默的反应，再登记本轮幽默 ----
         st.adaptation.react_to_pending_humor(user_text, st.turn_index)
@@ -432,7 +442,7 @@ class CompanionEngine:
         # ---- 钩子治理：只让用户的真实话题成为下一轮线头 ----
         if frame.input_type == InputType.CHARACTER_REJECTION:
             st.last_hook = None
-        elif frame.substantive and frame.topic_tokens and frame.input_type in (
+        elif not (learned_user_name or is_user_name_intro) and frame.substantive and frame.topic_tokens and frame.input_type in (
             InputType.TOPIC, InputType.CREATIVE_TOPIC, InputType.EXTERNAL_COMPLAINT,
             InputType.GOOD_NEWS, InputType.ASK_ADVICE,
         ):

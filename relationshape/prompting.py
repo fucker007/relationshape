@@ -73,6 +73,8 @@ def render_prompt_context(d: TurnDirective) -> str:
     # ---- TA是谁（远端人物档案，会话首轮注入）----
     if d.profile_summary:
         lines.append(f"【TA是谁】{d.profile_summary}")
+    if d.user_name:
+        lines.append(f"【TA的名字】用户告诉过你：TA叫「{d.user_name}」。如果TA问自己的名字，直接回答这个名字，绝不说忘了。")
 
     # ---- 关系与时间 ----
     seen = "今天刚见面" if d.is_session_start else "正在聊天中"
