@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from relationshape import CompanionEngine, EngineConfig  # noqa: E402
+from relationshape.extract_port import ExtractedFacts  # noqa: E402
 
 # ── 全新词表：刻意避开既有测试用词，且都是 ≥2 字的辨识度高的名词/活动 ──
 LIKES = [
@@ -134,41 +135,61 @@ def gen(rng: random.Random):
     retract = rng.random() < 0.25 and len(likes) >= 2
     retracted = likes[-1] if retract else None
 
-    # 必上的事实轮（自述），加上若干第三方/提问/闲聊轮，凑满 10 轮、顺序打乱（名字尽量靠前）
+    # 每个事实轮带上"已接地的意图事实"（第三/问/闲为 None）——供 oracle 上界测召回天花板
     turns = []
-    turns.append(("name", rng.choice(T_NAME).format(n=name)))
+    turns.append(("name", rng.choice(T_NAME).format(n=name), ExtractedFacts(name=name)))
     for x in likes:
-        turns.append(("like", rng.choice(T_LIKE).format(x=x)))
+        turns.append(("like", rng.choice(T_LIKE).format(x=x), ExtractedFacts(likes=[x])))
     for x in dis:
-        turns.append(("dislike", rng.choice(T_DISLIKE).format(x=x)))
-    turns.append(("friend", rng.choice(T_FRIEND).format(r=fr_rel, p=fr_name)))
-    turns.append(("event", rng.choice(T_EVENT).format(a=ev_a, o=ev_o)))
-    turns.append(("care", rng.choice(T_CARE).format(c=care)))
-    turns.append(("third", rng.choice(T_THIRD).format(k=tp_kin, x=tp_item)))
-    # 用提问/闲聊补足（给撤回留一格）
+        turns.append(("dislike", rng.choice(T_DISLIKE).format(x=x), ExtractedFacts(dislikes=[x])))
+    turns.append(("friend", rng.choice(T_FRIEND).format(r=fr_rel, p=fr_name),
+                  ExtractedFacts(friends=[(fr_name, fr_rel)])))
+    turns.append(("event", rng.choice(T_EVENT).format(a=ev_a, o=ev_o), None))
+    turns.append(("care", rng.choice(T_CARE).format(c=care), ExtractedFacts(cared=[care])))
+    turns.append(("third", rng.choice(T_THIRD).format(k=tp_kin, x=tp_item), None))   # 第三方→完美LLM也不抽
     cap = 10 - (1 if retracted else 0)
     while len(turns) < cap:
         if rng.random() < 0.5:
-            turns.append(("ask", rng.choice(T_ASK).format(r=fr_rel)))
+            turns.append(("ask", rng.choice(T_ASK).format(r=fr_rel), None))
         else:
-            turns.append(("chit", rng.choice(CHITCHAT)))
+            turns.append(("chit", rng.choice(CHITCHAT), None))
     turns = turns[:cap]
-    # 名字轮固定最前，中间打乱（模拟穿插），撤回轮固定最后——撤回必在陈述之后（真实对话顺序）
     head, rest = turns[0], turns[1:]
     rng.shuffle(rest)
     turns = [head] + rest
     if retracted:
-        turns.append(("retract", f"我现在不爱{retracted}了，玩腻了"))
+        turns.append(("retract", f"我现在不爱{retracted}了，玩腻了", ExtractedFacts(retract_likes=[retracted])))
 
     active_likes = [x for x in likes if x != retracted]
     truth = dict(name=name, likes=active_likes, dislikes=dis, retracted=retracted,
                  friend=fr_name, tp_item=tp_item, care=care)
-    return [t[1] for t in turns], truth
+    oracle = {t[1]: t[2] for t in turns if t[2] is not None}
+    return [t[1] for t in turns], truth, oracle
 
 
-def run(n: int, seed: int, verbose_fail: int = 6, llm: bool = False, llm_mode: str = "fallback"):
+class OracleExtractor:
+    """理想抽取器（召回上界）：直接返回当前轮"已接地的意图事实"，模拟完美 LLM。
+    用于在无密钥时估计天花板——真实 DeepSeek 召回 ≤ 此上界。第三方/问句/闲聊轮返回 None，
+    故精确率仍由真实 apply_extracted 门槛+子串接地保证（验证合并通路不破污染不变量）。"""
+
+    def __init__(self):
+        self.cur = {}
+        self.calls = 0
+
+    def load(self, m):
+        self.cur = m
+
+    def extract(self, text):
+        self.calls += 1
+        return self.cur.get((text or "").strip())
+
+
+def run(n: int, seed: int, verbose_fail: int = 6, llm: bool = False,
+        llm_mode: str = "fallback", oracle: bool = False):
     extractor = None
-    if llm:
+    if oracle:
+        extractor = OracleExtractor()
+    elif llm:
         from llm_extractor import DeepSeekExtractor      # 仅 --llm 时才需网络/密钥
         extractor = DeepSeekExtractor()
     eng = CompanionEngine(config=EngineConfig(state_dir="/tmp/convofuzz"),
@@ -182,7 +203,9 @@ def run(n: int, seed: int, verbose_fail: int = 6, llm: bool = False, llm_mode: s
     fails = {k: [] for k in agg}
 
     for i in range(n):
-        convo, tr = gen(rng)
+        convo, tr, omap = gen(rng)
+        if oracle:
+            extractor.load(omap)
         uid = f"c{i}"
         now = t0 + timedelta(hours=i % 5000)
         for j, ut in enumerate(convo):
@@ -221,8 +244,12 @@ def run(n: int, seed: int, verbose_fail: int = 6, llm: bool = False, llm_mode: s
 
         del eng._cache[uid]                 # 防 10 万用户态堆积内存
 
-    tag = "纯规则" if extractor is None else f"规则+LLM({llm_mode})"
-    extra = f" · LLM真实请求 {extractor.calls} 次（其余命中缓存）" if extractor is not None else ""
+    if extractor is None:
+        tag, extra = "纯规则", ""
+    elif oracle:
+        tag, extra = "规则+理想LLM(召回上界)", f" · oracle调用 {extractor.calls} 次"
+    else:
+        tag, extra = f"规则+LLM({llm_mode})", f" · LLM真实请求 {extractor.calls} 次（其余命中缓存）"
     print(f"\n独立多轮对话模糊测试 · {n} 组 × 10 轮 = {n*10} 轮 · seed={seed} · {tag}{extra}")
     print("=" * 66)
     print("  〔精确率·强不变量〕")
@@ -247,7 +274,9 @@ if __name__ == "__main__":
     ap.add_argument("--llm", action="store_true", help="接入 DeepSeek 抽取层补召回（需 DEEPSEEK_API_KEY）")
     ap.add_argument("--llm-mode", choices=["fallback", "always"], default="fallback",
                     help="fallback=仅规则未命中时调LLM（省钱）；always=每实质轮都调")
+    ap.add_argument("--oracle", action="store_true",
+                    help="用理想抽取器估计召回上界（无需密钥；真实LLM召回≤此）")
     a = ap.parse_args()
     s = time.time()
-    run(a.n, a.seed, llm=a.llm, llm_mode=a.llm_mode)
+    run(a.n, a.seed, llm=a.llm, llm_mode=a.llm_mode, oracle=a.oracle)
     print(f"\n用时 {time.time()-s:.1f}s")
