@@ -94,3 +94,93 @@ def test_promise_not_duplicated():
     bank.detect_character_promise("下次我给你讲恐龙的故事", T0, 1)
     bank.detect_character_promise("下次我给你讲恐龙的故事", T0 + timedelta(minutes=5), 1)
     assert len(bank.promises) == 1
+
+
+# ── 用户记忆抽取与档案（generalization fixes，断言通用机制非特例）──
+
+def test_name_extraction_pattern_class():
+    """名字抽取是一类模式，不是单串。"""
+    for utt, gold in [("我叫航航","航航"), ("我的名字是子轩","子轩"),
+                      ("我的名字叫朵朵","朵朵"), ("你可以叫我糖糖","糖糖"),
+                      ("我是浩浩，今年7岁","浩浩")]:
+        b = MemoryBank(); b.extract_facts(utt, [])
+        assert b.user_name == gold, f"{utt} → {b.user_name}"
+
+
+def test_interrogative_never_polluts_facts():
+    """问句不能被当成陈述学进去（'我叫什么'不能把名字设成'什么'）。"""
+    b = MemoryBank(); b.user_name = "小明"
+    b.extract_facts("你还记得我叫什么名字吗", [])
+    assert b.user_name == "小明"                       # 名字没被问句覆盖
+    b.extract_facts("我最喜欢什么来着", [])
+    assert "什么" not in b.preferences
+
+
+def test_cared_extraction_and_persist():
+    b = MemoryBank()
+    b.extract_facts("我最在乎的就是画画梦想", [])
+    assert "画画梦想" in b.cared
+    assert "画画梦想" in b.user_profile_facts()["cared"]
+
+
+def test_person_prefix_and_rolewords_filtered():
+    """'好朋友'带前缀要抽到真名；关系泛称不当人名进档案。"""
+    b = MemoryBank()
+    b.extract_facts("闹闹是我的好朋友", [])
+    facts_people = dict(b.user_profile_facts()["people"])
+    assert "闹闹" in facts_people                       # 真名抽到
+    assert "朋友" not in facts_people and "好朋友" not in facts_people  # 关系词不算人
+
+
+def test_profile_facts_structure():
+    b = MemoryBank()
+    b.extract_facts("我叫小鱼", []); b.extract_facts("我超喜欢恐龙", [])
+    b.extract_facts("乐乐是我的同桌", []); b.extract_facts("我最在乎的就是太空梦", [])
+    f = b.user_profile_facts()
+    assert f["name"] == "小鱼" and "恐龙" in f["preferences"]
+    assert ("乐乐", "同桌") in f["people"] and "太空梦" in f["cared"]
+
+
+def test_vague_reference_surfaces_candidates():
+    """模糊回指浮出 top-K 候选（多件事时让模型据上下文挑/追问）。"""
+    from datetime import datetime, timedelta
+    b = MemoryBank()
+    t0 = datetime(2026, 1, 1)
+    for i, e in enumerate(["养了小乌龟", "搬了新家", "学会了游泳"]):
+        b.add_episode(f"前几天我{e}", 0.2, 0.3, t0 + timedelta(days=i))
+    out = b.most_salient(t0 + timedelta(days=5), half_life_days=14, k=3)
+    assert len(out) == 3
+    assert all("哪件" in m.hint or "候选" in m.hint or "这件" in m.hint for m in out)
+
+
+def test_extraction_robust_to_colloquial_phrasings():
+    """10k 压力测试逼出的口语句式：抽取应是模式类，覆盖这些变体。"""
+    name_cases = {"我小名叫文明": "文明", "人家叫贝曦啦": "贝曦", "我，叫可婷": "可婷",
+                  "我名叫杰曦": "杰曦", "我的名字呀，是贝静": "贝静"}
+    for utt, gold in name_cases.items():
+        b = MemoryBank(); b.extract_facts(utt, [])
+        assert b.user_name == gold, f"{utt} → {b.user_name}"
+
+    pref_cases = {"我超爱听故事": "听故事", "最近迷上了唱歌": "唱歌", "我就喜欢玩魔方": "玩魔方",
+                  "我对写日记特别着迷": "写日记", "说真的我超迷乐高": "乐高"}
+    for utt, gold in pref_cases.items():
+        b = MemoryBank(); b.extract_facts(utt, [])
+        assert gold in b.preferences, f"{utt} → {b.preferences}"
+
+    cared_cases = {"我这辈子最在乎当画家的志向": "当画家的志向",
+                   "收养的流浪狗对我来说就是一切": "收养的流浪狗",
+                   "我心心念念的就是出国留学的梦": "出国留学的梦"}
+    for utt, gold in cared_cases.items():
+        b = MemoryBank(); b.extract_facts(utt, [])
+        assert gold in b.cared, f"{utt} → {b.cared}"
+
+
+def test_person_extraction_all_phrasings():
+    """人物抽取覆盖多种关系句式，且真名落入档案。"""
+    cases = {"我跟乐乐是同桌": "乐乐", "我那个同桌叫朵朵": "朵朵",
+             "我的闺蜜婷婷对我特别好": "婷婷", "浩浩，我发小": "浩浩",
+             "睿睿是我最好的哥哥": "睿睿"}
+    for utt, gold in cases.items():
+        b = MemoryBank(); b.extract_facts(utt, [])
+        people = dict(b.user_profile_facts()["people"])
+        assert any(gold in k for k in people), f"{utt} → {list(people)}"
