@@ -298,9 +298,12 @@ def main():
     ap.add_argument("--port", default=None)
     ap.add_argument("--mixed", action="store_true")
     ap.add_argument("--update", action="store_true")
+    ap.add_argument("--qualified", action="store_true")
     a = ap.parse_args()
     seed = a.seed if a.seed is not None else (1 if a.pool == "dev" else 7)
-    if a.update:
+    if a.qualified:
+        run_qualified(a.pool, seed, a.per)
+    elif a.update:
         run_update(a.pool, seed, a.per)
     elif a.mixed:
         run_mixed(a.pool, seed, a.per, a.port)
@@ -374,6 +377,88 @@ def run_update(pool, seed, per):
             print(f"\n  [{k}] 失败样本：")
             for a, bb, g in fails[k][:6]:
                 print(f"     「{a}」+「{bb}」期望：{g}")
+
+
+# ── 带区分属性的同类多实体 注入攻击测试（朋友按活动 / 喜好按品类 / 厌恶按品类）──
+ACTIVITIES = ["打篮球","打羽毛球","踢足球","下围棋","弹钢琴","画画","跳舞","游泳","唱歌",
+              "玩游戏","骑车","跑步","钓鱼","写代码","看书","做手工","滑板","打乒乓","练书法","摄影"]
+ATTR_FRIEND = ["{a}的","经常一起{a}的","跟我一起{a}的","特别会{a}的"]
+T_QFRIEND = ["我有一个{attr}{r}叫{n}","还有一个{attr}{r}叫{n}","我认识一个{attr}{r}叫{n}",
+             "{n}是我{attr}{r}","我有个{attr}{r}是{n}","还有个{attr}{r}{n}"]
+CAT_LIKE = [("水果","苹果"),("水果","香蕉"),("运动","篮球"),("运动","足球"),("颜色","蓝色"),
+            ("颜色","红色"),("动物","熊猫"),("动物","老虎"),("科目","数学"),("科目","语文"),
+            ("食物","饺子"),("食物","披萨"),("季节","夏天"),("饮料","可乐"),("零食","薯片"),
+            ("游戏","象棋"),("乐器","小提琴"),("花","玫瑰"),("城市","北京"),("书","西游记")]
+T_QLIKE = ["我喜欢的{c}是{i}","我最喜欢的{c}是{i}","要说{c}我最爱{i}","{c}里我最喜欢{i}","我喜欢的{c}是{i}哦"]
+T_QDISLIKE = ["我讨厌的{c}是{i}","我最怕的{c}是{i}","{c}里我最讨厌{i}","我不喜欢的{c}是{i}"]
+P_QLIKE = ["我喜欢的{c}是什么","你记得我爱吃/玩的{c}吗","我最喜欢哪个{c}"]
+
+
+def run_qualified(pool, seed, per):
+    r = random.Random(seed)
+    names = half(NAMES, pool)
+    cat_like = [CAT_LIKE[i] for i in range(len(CAT_LIKE)) if (i % 2 == 0) == (pool == "dev")]
+    cat = {"朋友计数": [0, 0], "朋友按属性": [0, 0], "喜好按品类": [0, 0], "厌恶按品类": [0, 0]}
+    fails = {k: [] for k in cat}
+    for _ in range(per):
+        scen = r.choice(["朋友", "喜好", "厌恶"])
+        b = MemoryBank()
+        if scen == "朋友":
+            k = r.randint(2, 4)
+            picks = r.sample(names, k); acts = r.sample(ACTIVITIES, k)
+            stores = []
+            for nm, ac in zip(picks, acts):
+                attr = r.choice(ATTR_FRIEND).format(a=ac)
+                stores.append(r.choice(T_QFRIEND).format(attr=attr, r="朋友", n=nm))
+            for s in stores:
+                b.extract_facts(s, [])
+            ppl = {p[0]: p for p in b.user_profile_facts()["people"]}
+            # 计数：所有名字都在档案
+            cnt_ok = all(nm in ppl for nm in picks)
+            cat["朋友计数"][0] += cnt_ok; cat["朋友计数"][1] += 1
+            if not cnt_ok and len(fails["朋友计数"]) < 8:
+                fails["朋友计数"].append((stores, list(ppl)))
+            # 按属性：随机挑一个，其属性+名字都在档案且相连
+            idx = r.randrange(k); tn, ta = picks[idx], acts[idx]
+            ent = ppl.get(tn)
+            attr_ok = ent is not None and ta in (ent[2] or "")
+            cat["朋友按属性"][0] += attr_ok; cat["朋友按属性"][1] += 1
+            if not attr_ok and len(fails["朋友按属性"]) < 8:
+                fails["朋友按属性"].append((stores, f"{ta}→{tn}", ppl.get(tn)))
+        elif scen == "喜好":
+            k = r.randint(2, 3)
+            picks = r.sample(cat_like, k)
+            for c, i in picks:
+                b.extract_facts(r.choice(T_QLIKE).format(c=c, i=i), [])
+            tc, ti = r.choice(picks)
+            cp = b.categorized_prefs() if hasattr(b, "categorized_prefs") else {}
+            ok = cp.get(tc) == ti or (ti in b.preferences)
+            cat["喜好按品类"][0] += ok; cat["喜好按品类"][1] += 1
+            if not ok and len(fails["喜好按品类"]) < 8:
+                fails["喜好按品类"].append(([T_QLIKE[0].format(c=c, i=i) for c, i in picks], f"{tc}→{ti}", cp))
+        else:  # 厌恶
+            k = r.randint(2, 3)
+            picks = r.sample(cat_like, k)
+            for c, i in picks:
+                b.extract_facts(r.choice(T_QDISLIKE).format(c=c, i=i), [])
+            tc, ti = r.choice(picks)
+            ok = ti in b.aversions
+            cat["厌恶按品类"][0] += ok; cat["厌恶按品类"][1] += 1
+            if not ok and len(fails["厌恶按品类"]) < 8:
+                fails["厌恶按品类"].append(([T_QDISLIKE[0].format(c=c, i=i) for c, i in picks], f"{tc}→{ti}", list(b.aversions)))
+    print(f"\n带属性多实体 注入攻击 · 池={pool} · seed={seed} · {per}条 · 留出泛化")
+    print("=" * 64)
+    th = tn = 0
+    for kk, (h, nn) in cat.items():
+        th += h; tn += nn
+        print(f"  {kk:<10} {h}/{nn}  {100*h//max(nn,1)}%")
+    print(f"  {'总计':<10} {th}/{tn}  {100*th//max(tn,1)}%")
+    for kk in cat:
+        if fails[kk]:
+            print(f"\n  [{kk}] 失败样本：")
+            for f in fails[kk][:5]:
+                print(f"     {f}")
+
 
 if __name__ == "__main__":
     main()

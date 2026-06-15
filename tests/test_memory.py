@@ -127,7 +127,7 @@ def test_person_prefix_and_rolewords_filtered():
     """'好朋友'带前缀要抽到真名；关系泛称不当人名进档案。"""
     b = MemoryBank()
     b.extract_facts("闹闹是我的好朋友", [])
-    facts_people = dict(b.user_profile_facts()["people"])
+    facts_people = {p[0]: p for p in b.user_profile_facts()["people"]}
     assert "闹闹" in facts_people                       # 真名抽到
     assert "朋友" not in facts_people and "好朋友" not in facts_people  # 关系词不算人
 
@@ -138,7 +138,7 @@ def test_profile_facts_structure():
     b.extract_facts("乐乐是我的同桌", []); b.extract_facts("我最在乎的就是太空梦", [])
     f = b.user_profile_facts()
     assert f["name"] == "小鱼" and "恐龙" in f["preferences"]
-    assert ("乐乐", "同桌") in f["people"] and "太空梦" in f["cared"]
+    assert any(p[0] == "乐乐" and p[1] == "同桌" for p in f["people"]) and "太空梦" in f["cared"]
 
 
 def test_vague_reference_surfaces_candidates():
@@ -182,8 +182,8 @@ def test_person_extraction_all_phrasings():
              "睿睿是我最好的哥哥": "睿睿"}
     for utt, gold in cases.items():
         b = MemoryBank(); b.extract_facts(utt, [])
-        people = dict(b.user_profile_facts()["people"])
-        assert any(gold in k for k in people), f"{utt} → {list(people)}"
+        people = [p[0] for p in b.user_profile_facts()["people"]]
+        assert any(gold in k for k in people), f"{utt} → {people}"
 
 
 # ── 多事实冲突更新（#10 keystone：偏好失效/更替，非只增列表）──
@@ -253,3 +253,43 @@ def test_transfer_captures_new_favorite():
         b.extract_facts("我最喜欢恐龙了", [])
         b.extract_facts(shift.format("机器人"), [])
         assert "机器人" in b.preferences, f"转移失败：{shift}"
+
+
+# ── 带区分属性的同类多实体（用户报的bug：打篮球的朋友/喜欢的水果）──
+
+def test_qualified_friends_count_and_attribute():
+    """用户原例：三个朋友靠活动区分，要能计数+按属性检索。"""
+    b = MemoryBank()
+    b.extract_facts("我有一个打篮球的朋友叫尼古拉", [])
+    b.extract_facts("还有一个打羽毛球的朋友小王", [])
+    b.extract_facts("还有一个经常一起玩的朋友叫巴拉巴拉", [])
+    ppl = {p[0]: p for p in b.user_profile_facts()["people"]}
+    assert {"尼古拉", "小王", "巴拉巴拉"} <= set(ppl)            # 三个名字都在（可计数）
+    assert "打篮球" in ppl["尼古拉"][2]                          # 属性链对
+    assert "打羽毛球" in ppl["小王"][2]
+    assert "经常一起玩" in ppl["巴拉巴拉"][2]
+
+
+def test_categorized_preferences():
+    """品类化偏好：喜欢的水果是X、运动是Y，可按品类检索。"""
+    b = MemoryBank()
+    b.extract_facts("我喜欢的水果是苹果", [])
+    b.extract_facts("我最喜欢的运动是篮球", [])
+    cp = b.categorized_prefs()
+    assert cp.get("水果") == "苹果" and cp.get("运动") == "篮球"
+    assert "苹果" in b.preferences and "篮球" in b.preferences   # 同时进通用偏好
+
+
+def test_categorized_aversions():
+    b = MemoryBank()
+    b.extract_facts("我讨厌的颜色是黑色", [])
+    b.extract_facts("我最怕的动物是蛇", [])
+    assert b.cat_aversions.get("颜色") == "黑色"
+    assert b.cat_aversions.get("动物") == "蛇"
+
+
+def test_qualified_no_false_friend_from_plain_text():
+    """'我今天打篮球'不该凭空造出一个朋友。"""
+    b = MemoryBank()
+    b.extract_facts("我今天打篮球特别开心", [])
+    assert not [p for p in b.user_profile_facts()["people"]]

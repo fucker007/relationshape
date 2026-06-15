@@ -163,6 +163,25 @@ _PERSON_RES = [
 # 角色/关系泛称：永远不当作"具体人名"塞进用户档案（只有真名+关系才算"身边的人"）
 _ROLE_WORDS = _REL_WORDS | {"客户", "老板", "领导", "同事", "教练", "妈妈", "爸爸",
                             "爷爷", "奶奶", "外婆", "外公", "姥姥", "姥爷", "老师"}
+# 带区分属性的同类实体："(我有一个)[打篮球]的[朋友](叫)[尼古拉]"——存属性，支持计数与按属性检索
+_QNUM = r"(?:[一二两三四五六七八九十0-9]+\s*[个位名]|个|俩|仨)?"
+_QATTR = r"([^，。！？!?的\s]{0,8})"
+_QNAME = r"([^，。！？!?的了是\s叫]{1,5})"
+_QP_NAME_LAST = re.compile(r"(?:有|还有|认识|多了)?" + _QNUM + _QATTR + r"的(?:好|亲)?" + _RELG + r"(?:叫|是|，叫|，)?" + _QNAME)
+_QP_NAME_FIRST = re.compile(_QNAME + r"是我" + _QATTR + r"的(?:好|亲)?" + _RELG)
+_ATTR_LEAD = re.compile(r"^(?:我|有|还有|认识|多了)?(?:[一二两三四五六七八九十0-9]+\s*[个位名]|个|一个|两个|那个|这个|有个|俩|仨)?(?:的)?")
+# 品类化偏好/厌恶："喜欢的[水果]是[苹果]" / "[水果]里我最喜欢[苹果]" —— category→item
+_CAT = r"([^，。！？!?是的\s]{1,6})"
+_ITEM = r"([^，。！？!?的了是\s]{1,8})"
+_CAT_PREF_RES = [
+    re.compile(r"(?:最)?(?:喜欢|爱)的" + _CAT + r"(?:是|就是)" + _ITEM),
+    re.compile(_CAT + r"(?:里|中|当中)(?:我)?(?:最)?(?:喜欢|爱)(?:的(?:就)?是)?" + _ITEM),
+    re.compile(r"要说" + _CAT + r"(?:我)?(?:最)?(?:喜欢|爱)" + _ITEM),
+]
+_CAT_AVERSION_RES = [
+    re.compile(r"(?:最)?(?:讨厌|怕|不喜欢)的" + _CAT + r"(?:是|就是)" + _ITEM),
+    re.compile(_CAT + r"(?:里|中|当中)(?:我)?(?:最)?(?:讨厌|怕|不喜欢)(?:的(?:就)?是)?" + _ITEM),
+]
 # 最在乎：高优先级、长期保留、永远进档案（用户主动强调的核心）
 # 注意顺序：带"的(就)是"的更具体的先匹配，最后才是裸"最在乎X"
 _CARED_RES = [
@@ -188,6 +207,8 @@ class MemoryBank:
         self.people: dict[str, dict] = {}     # 名字/角色 -> {"relation":…, "mentions":n}
         self.user_name: str | None = None
         self.cared: list[str] = []            # 用户主动强调"最在乎"的核心，长期保留
+        self.cat_prefs: dict[str, str] = {}   # 品类化偏好：水果→苹果、运动→篮球
+        self.cat_aversions: dict[str, str] = {}
         self.promises: list[Promise] = []
 
     # ------------------------------------------------------------------ 写入
@@ -229,10 +250,32 @@ class MemoryBank:
                     if item in self.preferences:
                         self.preferences.remove(item)
                         learned.append(f"不再喜欢：{item}")
+        # 品类化偏好/厌恶先抽（"喜欢的水果是苹果"），存 category→item，并把 item 也加进偏好
+        cat_items: set[str] = set()
+        for re_c in _CAT_PREF_RES:
+            for m in re_c.finditer(text):
+                c, it = _strip_particles(m.group(1)), _strip_particles(m.group(2))
+                if c and it and not _is_interrog(c) and not _is_interrog(it):
+                    self.cat_prefs[c] = it
+                    cat_items.add(it)
+                    if it not in self.preferences and it not in retracted:
+                        self.preferences.append(it)
+                        learned.append(f"喜欢的{c}：{it}")
+        for re_c in _CAT_AVERSION_RES:
+            for m in re_c.finditer(text):
+                c, it = _strip_particles(m.group(1)), _strip_particles(m.group(2))
+                if c and it and not _is_interrog(c) and not _is_interrog(it):
+                    self.cat_aversions[c] = it
+                    cat_items.add(it)
+                    if it not in self.aversions:
+                        self.aversions.append(it)
+                        learned.append(f"讨厌的{c}：{it}")
         for re_p in _PREFERENCE_RES:
             for m in re_p.finditer(text):
                 item = _strip_particles(m.group(1))
-                if item and not _is_interrog(item) and item not in retracted:
+                # "是"在词里多半是"X是Y"被泛模式吞了（已由品类化处理），跳过
+                if (item and "是" not in item and not _is_interrog(item)
+                        and item not in retracted and item not in cat_items):
                     if item in self.preferences:
                         self.preferences.remove(item)      # 重提/转移 → 提到最近
                     self.preferences.append(item)
@@ -241,19 +284,30 @@ class MemoryBank:
         for re_a in _AVERSION_RES:
             for m in re_a.finditer(text):
                 item = _strip_particles(m.group(1))
-                if item and not _is_interrog(item) and item not in retracted and item not in self.aversions:
+                if (item and "是" not in item and not _is_interrog(item)
+                        and item not in retracted and item not in cat_items and item not in self.aversions):
                     self.aversions.append(item)
                     learned.append(f"不喜欢：{item}")
+        def _add_person(name, relation, attr=""):
+            name = _strip_particles(name)
+            attr = _ATTR_LEAD.sub("", _strip_particles(attr or "")).strip()
+            if (name and name not in _NAME_STOP and name not in _ROLE_WORDS
+                    and not _is_interrog(name) and not _is_interrog(attr)):
+                if name not in self.people:
+                    self.people[name] = {"relation": relation, "attr": attr, "mentions": 0}
+                    learned.append(f"身边的人：{name}（{attr+'的' if attr else ''}{relation}）")
+                elif attr and not self.people[name].get("attr"):
+                    self.people[name]["attr"] = attr     # 补全属性
+        # 带属性的限定人物先抽（更具体）；存区分属性
+        for m in _QP_NAME_LAST.finditer(text):
+            _add_person(m.group(3), m.group(2), m.group(1))
+        for m in _QP_NAME_FIRST.finditer(text):
+            _add_person(m.group(1), m.group(3), m.group(2))
         for re_p in _PERSON_RES:
             for m in re_p.finditer(text):
                 g = m.groups()
-                # 两种模式：(名,关系) 或 (关系,名)
                 name, relation = (g[0], g[1]) if g[1] in _REL_WORDS else (g[1], g[0])
-                name = _strip_particles(name)
-                if (name and name not in _NAME_STOP and name not in _ROLE_WORDS
-                        and not _is_interrog(name) and name not in self.people):
-                    self.people[name] = {"relation": relation, "mentions": 0}
-                    learned.append(f"身边的人：{name}（{relation}）")
+                _add_person(name, relation)
         for re_c in _CARED_RES:
             m = re_c.search(text)
             if m:
@@ -274,11 +328,16 @@ class MemoryBank:
             "name": self.user_name,
             "preferences": self.preferences[-5:],
             "aversions": self.aversions[-3:],
-            # 只把"真名+关系"的人放进档案；泛称角色词（朋友/老师/妈妈）不算具体的人
-            "people": [(k, v.get("relation", "")) for k, v in self.people.items()
-                       if k not in _ROLE_WORDS][-4:],
+            # 只把"真名+关系"的人放进档案；泛称角色词不算具体的人。带区分属性的多带几个，支持计数/按属性检索
+            "people": [(k, v.get("relation", ""), v.get("attr", "")) for k, v in self.people.items()
+                       if k not in _ROLE_WORDS][-8:],
             "cared": self.cared[-3:],
+            "cat_prefs": dict(list(self.cat_prefs.items())[-6:]),
+            "cat_aversions": dict(list(self.cat_aversions.items())[-4:]),
         }
+
+    def categorized_prefs(self) -> dict:
+        return self.cat_prefs
 
     # ------------------------------------------------------------------ 遗忘
 
@@ -494,6 +553,8 @@ class MemoryBank:
             "people": self.people,
             "user_name": self.user_name,
             "cared": self.cared,
+            "cat_prefs": self.cat_prefs,
+            "cat_aversions": self.cat_aversions,
             "promises": [p.to_dict() for p in self.promises],
         }
 
@@ -506,5 +567,7 @@ class MemoryBank:
         bank.people = d.get("people", {})
         bank.user_name = d.get("user_name")
         bank.cared = d.get("cared", [])
+        bank.cat_prefs = d.get("cat_prefs", {})
+        bank.cat_aversions = d.get("cat_aversions", {})
         bank.promises = [Promise.from_dict(p) for p in d.get("promises", [])]
         return bank

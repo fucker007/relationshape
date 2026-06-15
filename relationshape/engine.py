@@ -77,9 +77,20 @@ def _render_user_facts(f: dict) -> Optional[str]:
     if f.get("aversions"):
         bits.append("怕/讨厌" + "、".join(f["aversions"]))
     if f.get("people"):
-        bits.append("身边的人：" + "、".join(f"{n}（{r}）" for n, r in f["people"]))
+        ppl = f["people"]
+        # 按关系计数（"有几个朋友"），并带区分属性（"打篮球的朋友叫什么"）
+        rel_count: dict = {}
+        for _, r, _a in ppl:
+            rel_count[r] = rel_count.get(r, 0) + 1
+        count_str = "、".join(f"{c}个{r}" for r, c in rel_count.items() if c >= 2)
+        listing = "、".join(f"{n}（{a+'的' if a else ''}{r}）" for n, r, a in ppl)
+        bits.append(("身边的人：" + (f"共{count_str}；" if count_str else "") + listing))
     if f.get("cared"):
         bits.append("TA最在乎：" + "、".join(f["cared"]))
+    if f.get("cat_prefs"):
+        bits.append("喜欢的：" + "、".join(f"{c}是{i}" for c, i in f["cat_prefs"].items()))
+    if f.get("cat_aversions"):
+        bits.append("讨厌的：" + "、".join(f"{c}是{i}" for c, i in f["cat_aversions"].items()))
     return "；".join(bits) if bits else None
 
 
