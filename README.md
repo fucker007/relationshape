@@ -128,6 +128,7 @@ python demo/dashboard.py --demo  # 养成面板（http://127.0.0.1:8088，先生
 python eval/convo_fuzz.py -n 2000               # 独立多轮对话模糊测试（纯规则）
 python eval/convo_fuzz.py -n 500 --llm          # 接 DeepSeek 抽取层补召回（需 DEEPSEEK_API_KEY）
 python eval/run_memory_suite.py                 # 记忆系统测试总览：单测+压测+模糊+快照+持久化 一次跑齐出总表
+python eval/benchmark_recall.py                 # 召回速度基准：每轮调记忆的延迟随记忆量怎么增长
 ```
 
 ## 可选 LLM 抽取层（补口语召回，不破精确率）
