@@ -57,6 +57,26 @@ def test_substring_grounding_blocks_hallucination():
     assert "火星基地" not in eng._cache["h"].memory.preferences
 
 
+def test_apply_extracted_rejects_cared_as_like():
+    m = MemoryBank()
+    learned = m.apply_extracted(
+        ExtractedFacts(likes=["邮册"]),
+        source_text="攒了三年的邮册在我这儿比啥都金贵",
+    )
+    assert learned == []
+    assert "邮册" not in m.preferences
+
+
+def test_apply_extracted_accepts_anchored_like():
+    m = MemoryBank()
+    learned = m.apply_extracted(
+        ExtractedFacts(likes=["抓蝌蚪"]),
+        source_text="我打小就特别喜欢抓蝌蚪",
+    )
+    assert "抓蝌蚪" in m.preferences
+    assert any("喜欢：抓蝌蚪" == s for s in learned)
+
+
 def test_extractor_not_called_on_questions():
     fake = _Fake()
     eng = _eng(extractor=fake)
@@ -87,6 +107,12 @@ def test_apply_extracted_rejects_role_word_name():
     m = MemoryBank()
     m.apply_extracted(ExtractedFacts(name="妈妈"), source_text="我妈妈")
     assert m.user_name != "妈妈"
+
+
+def test_apply_extracted_rejects_unanchored_name():
+    m = MemoryBank()
+    m.apply_extracted(ExtractedFacts(name="真心讨厌"), source_text="我真心讨厌腌菜")
+    assert m.user_name != "真心讨厌"
 
 
 def test_parse_extraction_is_defensive():

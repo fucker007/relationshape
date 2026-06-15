@@ -29,6 +29,13 @@ API_URL = os.environ.get("DEEPSEEK_API_URL", "https://api.deepseek.com/chat/comp
 MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
 
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+
+
 def _api_key() -> str:
     key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     if not key:
@@ -40,12 +47,13 @@ class DeepSeekExtractor:
     """实现 MemoryExtractorPort.extract(text) -> ExtractedFacts | None。"""
 
     def __init__(self, key: Optional[str] = None, *, temperature: float = 0.0,
-                 max_tokens: int = 256, retries: int = 2, timeout: int = 60):
+                 max_tokens: int = 256, retries: Optional[int] = None,
+                 timeout: Optional[int] = None):
         self.key = key or _api_key()
         self.temperature = temperature      # 抽取要确定性，温度 0
         self.max_tokens = max_tokens
-        self.retries = retries
-        self.timeout = timeout
+        self.retries = _env_int("DEEPSEEK_RETRIES", 2) if retries is None else retries
+        self.timeout = _env_int("DEEPSEEK_TIMEOUT", 60) if timeout is None else timeout
         self._cache: dict[str, ExtractedFacts] = {}
         self.calls = 0                       # 真实请求计数（缓存命中不计）
 

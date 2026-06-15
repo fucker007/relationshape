@@ -20,15 +20,19 @@ from __future__ import annotations
 
 import argparse
 import random
+import shutil
 import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.error import URLError
+from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from relationshape import CompanionEngine, EngineConfig  # noqa: E402
+from relationshape.memory_port import MemorySystemAdapter  # noqa: E402
 
 # ── 全新词表：刻意避开既有测试用词，且都是 ≥2 字的辨识度高的名词/活动 ──
 LIKES = [
@@ -166,14 +170,57 @@ def gen(rng: random.Random):
     return [t[1] for t in turns], truth
 
 
-def run(n: int, seed: int, verbose_fail: int = 6, llm: bool = False, llm_mode: str = "fallback"):
+def _memory_system_healthy(base_url: str, timeout: float = 2.0) -> tuple[bool, str]:
+    try:
+        with urlopen(f"{base_url.rstrip('/')}/health", timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", errors="replace")[:300]
+        return True, body
+    except (OSError, URLError) as e:
+        return False, str(e)
+
+
+def run(
+    n: int,
+    seed: int,
+    verbose_fail: int = 6,
+    llm: bool = False,
+    llm_mode: str = "fallback",
+    *,
+    state_dir: str | None = None,
+    run_id: str | None = None,
+    persist: bool = True,
+    reset_state: bool = True,
+    memory_system_url: str = "",
+    require_memory_system: bool = False,
+):
     extractor = None
     if llm:
         from llm_extractor import DeepSeekExtractor      # 仅 --llm 时才需网络/密钥
         extractor = DeepSeekExtractor()
-    eng = CompanionEngine(config=EngineConfig(state_dir="/tmp/convofuzz"),
-                          extractor=extractor, extractor_mode=llm_mode)
-    eng.store.save = lambda st: None        # 不落盘
+
+    run_id = run_id or f"seed{seed}-{int(time.time())}"
+    state_root = Path(state_dir or (ROOT / "runtime" / "convo_fuzz" / run_id))
+    if persist and reset_state and state_root.exists():
+        shutil.rmtree(state_root)
+
+    memory_port = None
+    if memory_system_url:
+        ok, detail = _memory_system_healthy(memory_system_url)
+        if not ok and require_memory_system:
+            raise SystemExit(f"memory_system 不可用：{memory_system_url} /health -> {detail}")
+        if ok:
+            memory_port = MemorySystemAdapter(memory_system_url, timeout=2.0)
+        else:
+            print(f"WARNING: memory_system 不可用，远端真实库写入关闭：{detail}")
+
+    eng = CompanionEngine(
+        config=EngineConfig(state_dir=str(state_root)),
+        memory_port=memory_port,
+        extractor=extractor,
+        extractor_mode=llm_mode,
+    )
+    if not persist:
+        eng.store.save = lambda st: None        # 显式要求时才不落盘（快速纯内存模式）
     rng = random.Random(seed)
     t0 = datetime(2026, 3, 1, 8, 0)
     agg = {k: [0, 0] for k in (
@@ -183,7 +230,7 @@ def run(n: int, seed: int, verbose_fail: int = 6, llm: bool = False, llm_mode: s
 
     for i in range(n):
         convo, tr = gen(rng)
-        uid = f"c{i}"
+        uid = f"{run_id}-c{i}"
         now = t0 + timedelta(hours=i % 5000)
         for j, ut in enumerate(convo):
             eng.prepare_turn(uid, ut, now=now + timedelta(minutes=j))
@@ -224,6 +271,8 @@ def run(n: int, seed: int, verbose_fail: int = 6, llm: bool = False, llm_mode: s
     tag = "纯规则" if extractor is None else f"规则+LLM({llm_mode})"
     extra = f" · LLM真实请求 {extractor.calls} 次（其余命中缓存）" if extractor is not None else ""
     print(f"\n独立多轮对话模糊测试 · {n} 组 × 10 轮 = {n*10} 轮 · seed={seed} · {tag}{extra}")
+    print(f"状态持久化：{'开启' if persist else '关闭'} · state_dir={state_root}")
+    print(f"memory_system：{memory_system_url if memory_port is not None else '未连接'}")
     print("=" * 66)
     print("  〔精确率·强不变量〕")
     for k in ("无幻觉偏好", "无幻觉厌恶", "第三方不入偏好", "撤回已生效", "提问闲聊不污染"):
@@ -247,7 +296,30 @@ if __name__ == "__main__":
     ap.add_argument("--llm", action="store_true", help="接入 DeepSeek 抽取层补召回（需 DEEPSEEK_API_KEY）")
     ap.add_argument("--llm-mode", choices=["fallback", "always"], default="fallback",
                     help="fallback=仅规则未命中时调LLM（省钱）；always=每实质轮都调")
+    ap.add_argument("--state-dir", default=None,
+                    help="真实 StateStore 目录。默认 runtime/convo_fuzz/<run-id>")
+    ap.add_argument("--run-id", default=None,
+                    help="本次评测用户 id 前缀；默认 seed+时间戳，避免真实库多次评测互相污染")
+    ap.add_argument("--no-persist", action="store_true",
+                    help="关闭 StateStore 落盘，仅用于快速本地冒烟；默认会真实持久化")
+    ap.add_argument("--keep-state", action="store_true",
+                    help="不清空 state-dir，适合验证跨进程加载；默认清空本次目录")
+    ap.add_argument("--memory-system-url", default="",
+                    help="可选：真实 memory_system HTTP 地址，如 http://127.0.0.1:8009")
+    ap.add_argument("--require-memory-system", action="store_true",
+                    help="指定后 memory_system 不可用即失败，防止悄悄退回本地")
     a = ap.parse_args()
     s = time.time()
-    run(a.n, a.seed, llm=a.llm, llm_mode=a.llm_mode)
+    run(
+        a.n,
+        a.seed,
+        llm=a.llm,
+        llm_mode=a.llm_mode,
+        state_dir=a.state_dir,
+        run_id=a.run_id,
+        persist=not a.no_persist,
+        reset_state=not a.keep_state,
+        memory_system_url=a.memory_system_url,
+        require_memory_system=a.require_memory_system,
+    )
     print(f"\n用时 {time.time()-s:.1f}s")

@@ -44,6 +44,8 @@ def _looks_like_self_name(name: str) -> bool:
         return False
     if any(word in name for word in ("什么", "啥", "哪个", "哪一个")):
         return False
+    if any(word in name for word in ("喜欢", "讨厌", "害怕", "受不了", "真心", "特别", "一口都")):
+        return False
     if name in globals().get("_NAME_STOP", set()):
         return False
     if "名字" in name and len(name) <= 4:
@@ -144,12 +146,12 @@ _PREF_NEGATE_RES = [
 ]
 # 名字：一类模式而非单串
 _NAME_RES = [
-    (re.compile(r"我(?:小名|大名|本名|大名儿)(?:是|叫)(?!什么|啥|哪|何)([^\s，。！？!?]{1,20})"), _looks_like_self_name),
+    (re.compile(r"我(?:小名|大名|本名|大名儿)(?:是|叫)?(?!什么|啥|哪|何)([^\s，。！？!?]{1,20})"), _looks_like_self_name),
     (re.compile(r"我名叫(?!什么|啥|哪|何)([^\s，。！？!?]{1,20})"), _looks_like_self_name),
     (re.compile(r"我[，,、\s]*叫(?!什么|啥|哪|何)([^\s，。！？!?啦呀哦]{1,20})"), _looks_like_self_name),
     (re.compile(r"我(?:的)?名字[呀啊呢，,\s]*(?:是|叫)(?!什么|啥|哪|何)([^\s，。！？!?]{1,20})"), _looks_like_self_name),
-    (re.compile(r"(?:你可以|你|都|大家都?|人家)?(?:叫|喊)我(?!什么|啥|哪|何)([^\s，。！？!?吧呀哦]{1,20})"), _looks_like_self_name),
-    (re.compile(r"(?:人家|大家都?)(?:叫|喊)(?!什么|啥|哪|何)([^\s，。！？!?吧呀哦]{1,20})[啦呀哦吧]*$"), _looks_like_self_name),
+    (re.compile(r"(?:你可以|你就|你|都|大家都?|大伙儿(?:平时)?都?|人家)?(?:叫|喊)我(?!什么|啥|哪|何)([^\s，。！？!?吧呀哦]{1,20})"), _looks_like_self_name),
+    (re.compile(r"(?:人家|大家都?|大伙儿(?:平时)?都?)(?:叫|喊)(?!什么|啥|哪|何)([^\s，。！？!?吧呀哦]{1,20})[啦呀哦吧]*$"), _looks_like_self_name),
     # 年龄自我介绍框架"X，今年N岁"几乎确定在报名字 → 放宽用字（允许 好/一 等名字常用字）
     (re.compile(r"我是(?!谁|什么|啥|哪|何)([^\s，。！？!?]{1,20})[，,]?今年"), _looks_like_self_name),
     # 裸"我是X"有歧义（我是学生/好人）→ 保守排除常见谓词起始字
@@ -158,6 +160,19 @@ _NAME_RES = [
         _looks_like_bare_self_name,
     ),
 ]
+
+
+def _name_value_matches(text: str, value: str) -> bool:
+    if not text or not value:
+        return False
+    for pattern, _validator in _NAME_RES:
+        for m in pattern.finditer(text):
+            cand = _strip_particles(m.group(1) or "")
+            if cand and (value in cand or cand in value):
+                return True
+    return False
+
+
 _NAME_STOP = {"什么", "谁", "个", "一", "不", "很", "真", "好",
               # 常见身份谓词：是普通名词不是名字（"我是学生"不该把名字设成"学生"）
               "学生", "老师", "医生", "男生", "女生", "男孩", "女孩", "小孩", "孩子",
@@ -178,6 +193,19 @@ _CONJ = {"但", "但是", "可", "可是", "不过", "然而", "而", "而且", 
 
 def _is_interrog(s: str) -> bool:
     return any(q in s for q in _INTERROG)
+
+
+def _value_matches(patterns: list[re.Pattern], text: str, value: str) -> bool:
+    """LLM 落库的语义类别校验：值必须贴着同类规则锚点，防止把"在乎"误进"喜欢"。"""
+    if not text or not value:
+        return False
+    for p in patterns:
+        for m in p.finditer(text):
+            for g in m.groups():
+                cand = _strip_particles(g or "")
+                if cand and (value in cand or cand in value):
+                    return True
+    return False
 
 
 # 整句是"提问/检索"而非"陈述事实"——绝不从问句里学事实（生产日志：问句被当事实存）
@@ -444,6 +472,8 @@ class MemoryBank:
 
         if facts.name:
             nm = _strip_particles(facts.name)
+            if nm and src and not _name_value_matches(src, nm):
+                nm = ""
             if (nm and (not src or nm in src) and nm not in _NAME_STOP
                     and nm not in _ROLE_WORDS and not _is_interrog(nm)
                     and _looks_like_self_name(nm) and self.user_name != nm):
@@ -461,6 +491,8 @@ class MemoryBank:
 
         for x in facts.likes or []:
             v = _ground(x)
+            if v and src and not _value_matches(_PREFERENCE_RES, src, v):
+                continue
             if v and v not in retracted and v not in self.aversions:
                 if v in self.preferences:
                     self.preferences.remove(v)

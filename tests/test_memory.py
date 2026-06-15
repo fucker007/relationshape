@@ -15,6 +15,25 @@ def test_fact_extraction():
     assert len(learned) == 2
 
 
+def test_colloquial_name_extraction():
+    samples = [
+        ("嗨，我小名核桃", "核桃"),
+        ("我大名麦子", "麦子"),
+        ("大伙儿平时都叫我小汤圆", "小汤圆"),
+        ("对了，你就喊我阿凯吧", "阿凯"),
+    ]
+    for text, expected in samples:
+        bank = MemoryBank()
+        bank.extract_facts(text, [])
+        assert bank.user_name == expected
+
+
+def test_name_extraction_rejects_predicate_phrase():
+    bank = MemoryBank()
+    bank.extract_facts("腌菜我是真心讨厌", [])
+    assert bank.user_name != "真心讨厌"
+
+
 def test_person_extraction():
     bank = MemoryBank()
     bank.extract_facts("乐乐是我最好的朋友", [])
