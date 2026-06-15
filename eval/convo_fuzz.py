@@ -166,8 +166,13 @@ def gen(rng: random.Random):
     return [t[1] for t in turns], truth
 
 
-def run(n: int, seed: int, verbose_fail: int = 6):
-    eng = CompanionEngine(config=EngineConfig(state_dir="/tmp/convofuzz"))
+def run(n: int, seed: int, verbose_fail: int = 6, llm: bool = False, llm_mode: str = "fallback"):
+    extractor = None
+    if llm:
+        from llm_extractor import DeepSeekExtractor      # 仅 --llm 时才需网络/密钥
+        extractor = DeepSeekExtractor()
+    eng = CompanionEngine(config=EngineConfig(state_dir="/tmp/convofuzz"),
+                          extractor=extractor, extractor_mode=llm_mode)
     eng.store.save = lambda st: None        # 不落盘
     rng = random.Random(seed)
     t0 = datetime(2026, 3, 1, 8, 0)
@@ -216,7 +221,9 @@ def run(n: int, seed: int, verbose_fail: int = 6):
 
         del eng._cache[uid]                 # 防 10 万用户态堆积内存
 
-    print(f"\n独立多轮对话模糊测试 · {n} 组 × 10 轮 = {n*10} 轮 · seed={seed}")
+    tag = "纯规则" if extractor is None else f"规则+LLM({llm_mode})"
+    extra = f" · LLM真实请求 {extractor.calls} 次（其余命中缓存）" if extractor is not None else ""
+    print(f"\n独立多轮对话模糊测试 · {n} 组 × 10 轮 = {n*10} 轮 · seed={seed} · {tag}{extra}")
     print("=" * 66)
     print("  〔精确率·强不变量〕")
     for k in ("无幻觉偏好", "无幻觉厌恶", "第三方不入偏好", "撤回已生效", "提问闲聊不污染"):
@@ -237,7 +244,10 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("-n", type=int, default=2000)
     ap.add_argument("--seed", type=int, default=20260615)
+    ap.add_argument("--llm", action="store_true", help="接入 DeepSeek 抽取层补召回（需 DEEPSEEK_API_KEY）")
+    ap.add_argument("--llm-mode", choices=["fallback", "always"], default="fallback",
+                    help="fallback=仅规则未命中时调LLM（省钱）；always=每实质轮都调")
     a = ap.parse_args()
     s = time.time()
-    run(a.n, a.seed)
+    run(a.n, a.seed, llm=a.llm, llm_mode=a.llm_mode)
     print(f"\n用时 {time.time()-s:.1f}s")

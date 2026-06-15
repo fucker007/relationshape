@@ -102,11 +102,15 @@ class CompanionEngine:
         identity: Optional[CharacterIdentity] = None,
         config: Optional[EngineConfig] = None,
         memory_port: Optional[MemoryPort] = None,
+        extractor=None,                            # 可选 LLM 抽取层（MemoryExtractorPort）；None=纯规则
+        extractor_mode: str = "fallback",          # fallback=仅规则未命中时调；always=每个实质轮都调
     ) -> None:
         self.identity = identity or CharacterIdentity()
         self.config = config or EngineConfig()
         self.store = StateStore(self.config.state_dir)
         self.memory_port = memory_port            # None = 纯本地（默认行为不变）
+        self.extractor = extractor                # None = 默认零依赖、纯规则抽取
+        self.extractor_mode = extractor_mode
         self._cache: dict[str, UserRelationState] = {}
 
     # ------------------------------------------------------------------ 状态
@@ -115,6 +119,21 @@ class CompanionEngine:
         if user_id not in self._cache:
             self._cache[user_id] = self.store.load(user_id)
         return self._cache[user_id]
+
+    def _llm_extract(self, st: UserRelationState, text: str, frame, rule_hit: bool) -> list[str]:
+        """可选 LLM 抽取层：补齐规则漏掉的口语句式。仅实质轮、非问句时触发；
+        fallback 模式只在规则未命中时调（省调用），结果经 apply_extracted 过门槛+子串接地落地。"""
+        if self.extractor is None or not frame.substantive or _memory_is_query(text):
+            return []
+        if self.extractor_mode != "always" and rule_hit:
+            return []
+        try:
+            facts = self.extractor.extract(text)
+        except Exception:       # 抽取层任何异常都不影响主流程（退化为纯规则）
+            return []
+        if not facts or facts.is_empty():
+            return []
+        return st.memory.apply_extracted(facts, source_text=text)
 
     def _touch_session(self, st: UserRelationState, now: datetime) -> tuple[bool, int]:
         """会话切分与缺席处理。返回 (是否新会话, 距上次的间隔天数)。"""
@@ -215,6 +234,7 @@ class CompanionEngine:
 
         # ---- 学习新事实（供奖励与记忆确认）----
         learned = st.memory.extract_facts(text, frame.actors)
+        learned += self._llm_extract(st, text, frame, bool(learned))
         nick = st.adaptation.maybe_learn_address(text)
         if nick:
             learned.append(f"称呼：{nick}")
@@ -388,11 +408,14 @@ class CompanionEngine:
 
         frame = pend.get("frame")
         reading = pend.get("reading")
-        if frame is None or reading is None:
+        direct_commit = frame is None or reading is None
+        if direct_commit:
             # 无 prepare 的直接提交（如历史导入）：感知与语义事实在这里补做
             frame, reading = perceive(user_text)
         known_user_name = st.memory.user_name or ""
         learned_facts = st.memory.extract_facts(user_text, frame.actors)
+        if direct_commit:       # 正常流的 LLM 抽取在 prepare_turn 已做，避免重复调用
+            learned_facts += self._llm_extract(st, user_text, frame, bool(learned_facts))
         learned_user_name = any(fact.startswith("名字：") for fact in learned_facts)
         is_user_name_intro = bool(
             known_user_name

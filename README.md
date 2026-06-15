@@ -103,6 +103,7 @@ relationshape/
 ├── affect.py        # 评估(OCC)→角色情绪；PAD 心境；表达调节
 ├── eq.py            # 高情商层：元信息/确认六级/情绪粒度/知觉检核等十个机制（docs/EQ_CANON.md）
 ├── memory.py        # 情景/语义记忆、遗忘曲线、承诺生命周期
+├── extract_port.py  # 事实抽取端口（可选 LLM 抽取层契约+提示词，补口语召回；默认纯规则）
 ├── relationship.py  # 信任账本、阶段推进、裂痕修复、里程碑
 ├── adaptation.py    # 人格表达层演进（沟通适应、内部梗、教训）
 ├── humor.py         # 幽默门禁与规划
@@ -119,11 +120,24 @@ relationshape/
 
 ```bash
 pip install -e ".[dev]"
-pytest                      # 208 项测试（记忆压力测试驱动：5万条留出集所修的通用抽取/召回机制）
+pytest                      # 229 项测试（记忆压力测试驱动：5万条留出集所修的通用抽取/召回机制）
 python demo/simulate.py     # 30 天关系生长模拟
 python demo/simulate.py --chat   # 交互看每轮指令
 python demo/dashboard.py --demo  # 养成面板（http://127.0.0.1:8088，先生成30天演示数据）
+python eval/convo_fuzz.py -n 2000               # 独立多轮对话模糊测试（纯规则）
+python eval/convo_fuzz.py -n 500 --llm          # 接 DeepSeek 抽取层补召回（需 DEEPSEEK_API_KEY）
 ```
+
+## 可选 LLM 抽取层（补口语召回，不破精确率）
+
+规则抽取精确率满分（100 万轮独立对话零污染），但口语句式召回有天花板（"我小名X""我和X是一对Y"等）。把上层 LLM 接成 `MemoryExtractorPort` 即可补齐，引擎默认零依赖、不接就退化为纯规则：
+
+```python
+from eval.llm_extractor import DeepSeekExtractor
+engine = CompanionEngine(extractor=DeepSeekExtractor())   # extractor_mode="fallback"：仅规则未命中时才调
+```
+
+LLM 只产出结构化事实，统一经 `MemoryBank.apply_extracted` 过门槛落地，并强制**子串接地**（抽出的值必须是原话子串）——模型只能框选/归一原文，凭空造的词污染不进记忆，精确率不变量在 LLM 介入后依然成立。
 
 ## 已知边界与路线图
 

@@ -429,6 +429,69 @@ class MemoryBank:
         # 只有"真名+关系"经上面的人物抽取才进 people（日志：朋友/我妈污染了人名库）
         return learned
 
+    def apply_extracted(self, facts, source_text: str = "") -> list[str]:
+        """把（LLM 抽取的）结构化事实并入记忆，过与规则同款门槛 + 子串接地。
+        子串接地：每个值必须是原话子串——模型只能"框选/归一"原文，不能凭空造词，
+        即便它幻觉乱编也污染不进记忆（精确率不变量的最后一道闸）。"""
+        learned: list[str] = []
+        src = source_text or ""
+
+        def _ground(v: str) -> str:
+            v = _strip_particles(v or "")
+            if not v or (src and v not in src) or _is_interrog(v) or v in _CONJ:
+                return ""
+            return v
+
+        if facts.name:
+            nm = _strip_particles(facts.name)
+            if (nm and (not src or nm in src) and nm not in _NAME_STOP
+                    and nm not in _ROLE_WORDS and not _is_interrog(nm)
+                    and _looks_like_self_name(nm) and self.user_name != nm):
+                self.user_name = nm
+                learned.append(f"名字：{nm}")
+
+        retracted: set[str] = set()
+        for x in getattr(facts, "retract_likes", []) or []:
+            v = _ground(x)
+            if v:
+                retracted.add(v)
+                if v in self.preferences:
+                    self.preferences.remove(v)
+                    learned.append(f"不再喜欢：{v}")
+
+        for x in facts.likes or []:
+            v = _ground(x)
+            if v and v not in retracted and v not in self.aversions:
+                if v in self.preferences:
+                    self.preferences.remove(v)
+                self.preferences.append(v)
+                if f"喜欢：{v}" not in learned:
+                    learned.append(f"喜欢：{v}")
+
+        for x in facts.dislikes or []:
+            v = _ground(x)
+            if v and v not in self.aversions:
+                self.aversions.append(v)
+                learned.append(f"不喜欢：{v}")
+
+        for pair in facts.friends or []:
+            nm, rel = (pair[0], pair[1]) if len(pair) >= 2 else (pair[0], "朋友")
+            nm = _strip_particles(nm)
+            rel = _strip_particles(rel) or "朋友"
+            if (nm and (not src or nm in src) and nm not in _NAME_STOP
+                    and nm not in _ROLE_WORDS and not _is_interrog(nm) and nm not in self.people):
+                self.people[nm] = {"relation": rel, "attr": "", "mentions": 0}
+                learned.append(f"身边的人：{nm}（{rel}）")
+
+        for c in facts.cared or []:
+            v = _ground(c)
+            if v and v not in self.cared:
+                self.cared.append(v)
+                self.cared = self.cared[-6:]
+                learned.append(f"最在乎：{v}")
+
+        return learned
+
     def user_profile_facts(self) -> dict:
         """结构化的"一个朋友本就知道的你"——不依赖字面命中，长期稳定。"""
         return {
