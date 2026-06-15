@@ -63,6 +63,16 @@ _FORWARD_TYPES = (
 )
 
 
+_STAGE_ZH = {
+    "stranger": "陌生", "acquaintance": "相识", "familiar": "熟悉",
+    "companion": "同伴", "confidant": "知己",
+}
+
+
+def _stage_zh(stage) -> str:
+    return _STAGE_ZH.get(getattr(stage, "value", stage), str(stage))
+
+
 _VAGUE_RECALL_RE = re.compile(
     r"(那件事|那个事儿?|上次(那|的|跟|说)|之前(那|的|说|聊)|以前(说|聊|讲)的"
     r"|跟你说过的那|好久前.{0,4}的那?件?事|还记得.{0,10}(吗|不|么))"
@@ -121,6 +131,29 @@ class CompanionEngine:
             self._cache[user_id] = self.store.load(user_id)
         return self._cache[user_id]
 
+    @staticmethod
+    def _log_event(
+        st: UserRelationState, now: datetime, kind: str, label: str, detail: str = "",
+    ) -> None:
+        """关系大事记：每个事件都钉在时间线上，并快照此刻的信任/亲密/阶段。
+
+        时间线是关系真实历史的忠实记录——可视化的"动态"就长在这里。敏感内容
+        （危机轮）只记一个不含内容的标记，与封存区同一条红线。
+        """
+        ev = {
+            "t": now.isoformat(timespec="minutes"),
+            "kind": kind,
+            "label": label,
+            "trust": round(st.ledger.trust, 1),
+            "closeness": round(st.ledger.closeness, 1),
+            "stage": st.core.stage.value,
+            "session": st.core.sessions,
+        }
+        if detail:
+            ev["detail"] = detail[:60]
+        st.timeline.append(ev)
+        st.timeline = st.timeline[-400:]
+
     def _llm_extract(self, st: UserRelationState, text: str, frame, rule_hit: bool) -> list[str]:
         """可选 LLM 抽取层：补齐规则漏掉的口语句式。仅实质轮、非问句时触发；
         fallback 模式只在规则未命中时调（省调用），结果经 apply_extracted 过门槛+子串接地落地。"""
@@ -160,6 +193,7 @@ class CompanionEngine:
     def prepare_turn(self, user_id: str, text: str, now: Optional[datetime] = None) -> TurnDirective:
         now = now or datetime.now()
         st = self._state(user_id)
+        first_meet = not st.core.first_met
         is_session_start, gap_days = self._touch_session(st, now)
         days_known = (now - datetime.fromisoformat(st.core.first_met)).days
 
@@ -192,7 +226,9 @@ class CompanionEngine:
                 cause="对方正在经历不好的事，稳稳接住",
             )
             directive.mood = st.mood.snapshot()
-            st.pending = {"safety": True, "now": now.isoformat()}
+            st.pending = {"safety": True, "now": now.isoformat(),
+                          "first_meet": first_meet, "is_session_start": is_session_start,
+                          "gap_days": gap_days}
             return directive
 
         # ---- 感知 ----
@@ -362,6 +398,9 @@ class CompanionEngine:
         )
         st.pending = {
             "safety": False,
+            "first_meet": first_meet,
+            "is_session_start": is_session_start,
+            "gap_days": gap_days,
             "frame": frame,
             "reading": reading,
             "humor": humor,
@@ -400,6 +439,8 @@ class CompanionEngine:
             st.traces = st.traces[-20:]
             st.memory.add_episode(user_text, valence=-0.9, arousal=0.8, now=now, sensitive=True)
             record_substantive_turn(st.ledger, disclosure_depth=3)
+            # 危机时刻进时间线，但永不带内容——与封存区同一条红线
+            self._log_event(st, now, "safety", "危机时刻 · 稳稳接住", "内容已封存，永不展示")
             st.last_hook = None
             # 危机轮之后情绪惯性拉满：哪怕下一轮对方说"没事"，也不许开玩笑
             st.last_user_valence = -0.9
@@ -426,7 +467,11 @@ class CompanionEngine:
         st.adaptation.maybe_learn_address(user_text)
 
         # ---- 幽默学习：先看用户对上一轮幽默的反应，再登记本轮幽默 ----
+        jokes_before = len(st.adaptation.inside_jokes)
         st.adaptation.react_to_pending_humor(user_text, st.turn_index)
+        if len(st.adaptation.inside_jokes) > jokes_before:   # 一起笑过 → 诞生专属梗
+            self._log_event(st, now, "joke", "诞生一个专属梗",
+                            st.adaptation.inside_jokes[-1].label)
         humor = pend.get("humor")
         if humor is not None:
             st.adaptation.set_pending_humor(humor.style.value, humor.material, st.turn_index)
@@ -449,6 +494,10 @@ class CompanionEngine:
                     vulnerability=frame.disclosure_depth,
                 )
             record_substantive_turn(st.ledger, frame.disclosure_depth)
+            # 秘密级表露：社会渗透理论里的高价值时刻，单独钉在时间线上
+            if frame.disclosure_depth >= 3:
+                self._log_event(st, now, "disclosure", "一次很深的心里话",
+                                "对方把藏着的脆弱说了出来")
         st.last_user_valence = reading.valence
 
         # ---- 自述账本：身世轮后登记角色的自我表述（连续性管理）----
@@ -458,15 +507,19 @@ class CompanionEngine:
         # ---- 裂痕与修复 ----
         if frame.input_type == InputType.CHARACTER_ATTACK:
             record_rupture(st.ledger)
+            self._log_event(st, now, "rupture", "出现裂痕", "一次冲突，信任受了点伤")
             st.adaptation.add_lesson("被攻击时站直但不升级：一个具体事实就够，不列清单")
         elif frame.input_type in (InputType.CHARACTER_REASSURANCE, InputType.CHARACTER_PRAISE):
             if st.ledger.ruptures_open > 0:
                 record_repair(st.ledger)
+                self._log_event(st, now, "repair", "裂痕修复", "和好了——吵过又和好的关系更结实")
         elif frame.input_type == InputType.CHARACTER_REJECTION:
             st.adaptation.add_lesson("对方想自己待着时，收住比追问好")
 
         # ---- 承诺生命周期 ----
-        st.memory.detect_character_promise(assistant_text, now, st.core.sessions)
+        made = st.memory.detect_character_promise(assistant_text, now, st.core.sessions)
+        if made is not None:
+            self._log_event(st, now, "promise", "许下一个约定", made.text)
         due_pids = pend.get("due_pids", []) if pend.get("promise_surfaced") else []
         if due_pids:
             ab = zh.bigrams(assistant_text)
@@ -476,11 +529,13 @@ class CompanionEngine:
                 if zh.jaccard(ab, zh.bigrams(promise.text)) > 0.12:
                     st.memory.mark_promise(promise.pid, "kept")
                     record_promise(st.ledger, kept=True)
+                    self._log_event(st, now, "promise_kept", "兑现了约定", promise.text)
                 else:
                     promise.surfaced += 1
                     if promise.surfaced >= 3:
                         st.memory.mark_promise(promise.pid, "missed")
                         record_promise(st.ledger, kept=False)
+                        self._log_event(st, now, "promise_missed", "约定落空了", promise.text)
                         st.adaptation.add_lesson(f"没接住的承诺（{promise.text}）：下次少许诺、多兑现")
 
         # ---- 奖励与里程碑记账 ----
@@ -494,6 +549,7 @@ class CompanionEngine:
         milestone = pend.get("milestone")
         if milestone is not None and milestone not in st.core.milestones_done:
             st.core.milestones_done.append(milestone)
+            self._log_event(st, now, "milestone", f"认识第 {milestone} 天", "一个值得一起记得的里程碑")
 
         # ---- 可观测性：每轮记忆调用痕迹（面板"会不会调记忆"的答案）----
         st.traces.append({
@@ -532,8 +588,24 @@ class CompanionEngine:
         )
 
         # ---- 阶段推进 / 倒退 ----
-        try_progress(st.core, st.ledger, st.adaptation.culture_size(), now, self.config)
-        maybe_demote(st.core, st.ledger, self.config)
+        # 先记本轮的"见面"节拍（首次相遇 / 久别重逢 / 普通见面），作为信任轨迹的采样点
+        if pend.get("first_meet"):
+            self._log_event(st, now, "meet", "初次相遇", "一段关系从这里开始")
+        elif pend.get("is_session_start"):
+            gap = int(pend.get("gap_days") or 0)
+            if gap >= self.config.reunion_gap_days:
+                self._log_event(st, now, "reunion", f"久别重逢 · 隔了 {gap} 天", "暖场，零指责")
+            else:
+                self._log_event(st, now, "session", f"第 {st.core.sessions} 次见面")
+
+        promoted = try_progress(st.core, st.ledger, st.adaptation.culture_size(), now, self.config)
+        if promoted is not None:
+            self._log_event(st, now, "stage_up", f"关系进阶 → {_stage_zh(promoted)}",
+                            "时间 × 互动 × 信任都到了")
+        demoted = maybe_demote(st.core, st.ledger, self.config)
+        if demoted is not None:
+            self._log_event(st, now, "stage_down", f"关系降温 → {_stage_zh(demoted)}",
+                            "未修复的裂痕累积了")
 
         st.core.last_seen = now.isoformat()
         self.store.save(st)

@@ -3,240 +3,737 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>relationshape · 养成面板</title>
+<title>relationshape · 关系可视化</title>
 <style>
-  :root {
-    --bg:#faf7f2; --card:#ffffff; --ink:#3a3530; --sub:#9b938a;
-    --warm:#f4a261; --good:#7cb87c; --bad:#e07a6b; --soft:#f0e9df;
-    --accent:#6b8cae;
+  :root{
+    --bg:#f4f0ea; --bg2:#ece6dd; --card:#fffdfa; --ink:#352f29; --ink2:#6b6258; --sub:#9a9087;
+    --line:#ece4d8; --line2:#e0d6c7; --accent:#c97b4a; --accent-soft:#f4e4d6;
+    --good:#5fae8c; --bad:#e07a6b; --warn:#e0a72b; --secret:#9b7cc4;
+    --s0:#8a94a6; --s1:#5b8bd0; --s2:#2bb1a8; --s3:#f0a13e; --s4:#e8638a;
+    --shadow:0 1px 2px rgba(60,50,40,.04), 0 6px 22px rgba(60,50,40,.07);
+    --shadow-lg:0 2px 6px rgba(60,50,40,.06), 0 18px 48px rgba(60,50,40,.13);
+    --r:18px;
   }
-  * { box-sizing:border-box; margin:0; }
-  body { background:var(--bg); color:var(--ink); font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif; padding:20px; }
-  header { display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; margin-bottom:18px; }
-  h1 { font-size:22px; }  h1 small { color:var(--sub); font-weight:400; font-size:13px; margin-left:8px; }
-  select { font-size:14px; padding:6px 10px; border-radius:10px; border:1px solid var(--soft); background:var(--card); }
-  .badge { background:var(--warm); color:#fff; border-radius:999px; padding:4px 14px; font-size:14px; }
-  .meta { color:var(--sub); font-size:13px; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr)); gap:14px; }
-  .card { background:var(--card); border-radius:16px; padding:16px 18px; box-shadow:0 1px 4px rgba(60,50,40,.06); }
-  .card h2 { font-size:14px; color:var(--sub); margin-bottom:12px; letter-spacing:1px; }
-  .stages { display:flex; align-items:center; gap:4px; margin-bottom:14px; }
-  .stage-dot { flex:1; text-align:center; font-size:11px; color:var(--sub); }
-  .stage-dot .dot { width:14px; height:14px; border-radius:50%; background:var(--soft); margin:0 auto 4px; }
-  .stage-dot.done .dot { background:var(--warm); }
-  .stage-dot.cur .dot { background:var(--warm); outline:3px solid #f4a26144; }
-  .stage-dot.cur { color:var(--ink); font-weight:600; }
-  .bar-row { display:flex; align-items:center; gap:8px; margin:6px 0; font-size:12px; }
-  .bar-row .name { width:64px; color:var(--sub); }
-  .bar { flex:1; height:8px; background:var(--soft); border-radius:6px; overflow:hidden; }
-  .bar i { display:block; height:100%; background:var(--accent); border-radius:6px; transition:width .4s; }
-  .bar i.full { background:var(--good); }
-  .bar-row .val { width:70px; text-align:right; color:var(--sub); }
-  .bignum { display:flex; gap:18px; margin-bottom:10px; }
-  .bignum div { text-align:center; }
-  .bignum b { font-size:26px; display:block; }
-  .bignum span { font-size:11px; color:var(--sub); }
-  .counters { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; font-size:12px; color:var(--sub); }
-  .counters b { color:var(--ink); }
-  .chips { display:flex; flex-wrap:wrap; gap:6px; }
-  .chip { background:var(--soft); border-radius:999px; padding:3px 10px; font-size:12px; }
-  .chip.joke { background:#fdebd2; }
-  .chip.avoid { background:#fbdcd6; }
-  ul.plain { list-style:none; font-size:13px; }
-  ul.plain li { padding:5px 0; border-bottom:1px dashed var(--soft); }
-  .p-kept::before { content:"✓ "; color:var(--good); }
-  .p-missed::before { content:"✗ "; color:var(--bad); }
-  .p-open::before { content:"⏳ "; }
-  .mem { font-size:12.5px; margin:6px 0; }
-  .mem .bar { height:5px; margin-top:3px; }
-  .mem .bar i { background:var(--warm); }
-  .sealed { margin-top:10px; padding:8px 10px; background:#f2f0fa; border-radius:10px; font-size:12px; color:#6f6a8a; }
-  .rupture { color:var(--bad); font-size:12px; margin-top:6px; }
-  textarea { width:100%; border:1px solid var(--soft); border-radius:10px; padding:8px; font-size:13px; resize:vertical; min-height:40px; }
-  button { margin-top:8px; background:var(--warm); border:none; color:#fff; border-radius:10px; padding:8px 16px; font-size:13px; cursor:pointer; }
-  pre { background:#faf8f4; border:1px solid var(--soft); border-radius:10px; padding:10px; font-size:11.5px;
-        white-space:pre-wrap; max-height:340px; overflow:auto; margin-top:10px; color:#5a544d; }
-  .tag { font-size:11px; background:var(--soft); border-radius:6px; padding:2px 6px; margin-left:6px; color:var(--sub); }
-  footer { margin-top:18px; color:var(--sub); font-size:11px; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:
+      radial-gradient(1200px 700px at 12% -8%, #fff7ee 0%, transparent 55%),
+      radial-gradient(1000px 600px at 100% 0%, #f3ece2 0%, transparent 50%),
+      linear-gradient(180deg, var(--bg), var(--bg2));
+    background-attachment:fixed;
+    color:var(--ink); min-height:100vh;
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,-apple-system,Segoe UI,sans-serif;
+    -webkit-font-smoothing:antialiased; line-height:1.5;
+  }
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:1240px;margin:0 auto;padding:22px clamp(14px,3vw,32px) 64px}
+
+  /* ---- top bar ---- */
+  .topbar{display:flex;align-items:center;gap:14px;margin-bottom:26px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;letter-spacing:.2px}
+  .brand .logo{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;font-size:19px;
+    background:linear-gradient(135deg,#f3b277,#c97b4a);box-shadow:0 4px 12px rgba(201,123,74,.35);color:#fff}
+  .brand small{font-weight:400;color:var(--sub);font-size:12.5px;margin-left:2px}
+  .crumbs{display:flex;align-items:center;gap:8px;color:var(--sub);font-size:13px}
+  .crumbs a:hover{color:var(--accent)}
+  .crumbs .sep{opacity:.5}
+  .spacer{flex:1}
+  .pill{background:var(--card);border:1px solid var(--line2);border-radius:999px;padding:6px 13px;font-size:12.5px;
+    color:var(--ink2);box-shadow:var(--shadow)}
+
+  /* ---- gallery hero ---- */
+  .hero{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);
+    padding:20px 22px;margin-bottom:20px;display:grid;grid-template-columns:1.2fr 1fr;gap:24px}
+  @media(max-width:760px){.hero{grid-template-columns:1fr}}
+  .hero h1{font-size:21px;margin-bottom:4px}
+  .hero p{color:var(--ink2);font-size:13.5px;max-width:52ch}
+  .stats{display:flex;gap:22px;margin-top:16px;flex-wrap:wrap}
+  .stat b{font-size:26px;display:block;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+  .stat span{font-size:11.5px;color:var(--sub)}
+  .dist h3{font-size:12px;color:var(--sub);letter-spacing:1px;margin-bottom:9px}
+  .distbar{display:flex;height:13px;border-radius:8px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(0,0,0,.03)}
+  .distbar i{display:block;transition:flex .5s}
+  .distlegend{display:flex;flex-wrap:wrap;gap:10px 16px;margin-top:11px}
+  .distlegend span{font-size:12px;color:var(--ink2);display:flex;align-items:center;gap:6px}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+
+  /* ---- user cards ---- */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px}
+  .ucard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);
+    padding:17px 18px;cursor:pointer;position:relative;overflow:hidden;transition:transform .18s,box-shadow .18s;
+    border-top:3px solid var(--stage)}
+  .ucard:hover{transform:translateY(-4px);box-shadow:var(--shadow-lg)}
+  .ucard .glow{position:absolute;inset:-40% 55% 60% -10%;background:radial-gradient(circle,var(--stage),transparent 70%);
+    opacity:.10;pointer-events:none}
+  .uhead{display:flex;align-items:center;gap:12px;margin-bottom:13px}
+  .avatar{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;font-size:21px;font-weight:700;
+    color:#fff;background:linear-gradient(135deg,var(--stage),var(--stage-d));box-shadow:0 5px 14px var(--stage-a);flex:none}
+  .uname{font-size:17px;font-weight:700;display:flex;align-items:center;gap:7px}
+  .umeta{font-size:11.5px;color:var(--sub)}
+  .sbadge{font-size:11px;font-weight:600;color:#fff;background:var(--stage);border-radius:999px;padding:2px 9px}
+  .ubars{margin:4px 0 11px}
+  .ubar{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--sub);margin:5px 0}
+  .ubar .nm{width:30px}
+  .track{flex:1;height:6px;background:var(--line);border-radius:6px;overflow:hidden}
+  .track i{display:block;height:100%;border-radius:6px}
+  .ubar .vv{width:30px;text-align:right;color:var(--ink2);font-variant-numeric:tabular-nums}
+  .spark{height:30px;width:100%;display:block;margin-bottom:11px}
+  .uchips{display:flex;flex-wrap:wrap;gap:6px}
+  .uchip{font-size:11px;color:var(--ink2);background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:2px 8px}
+  .uchip.lock{background:#f2effa;border-color:#e6e0f4;color:#6f6a8a}
+  .ufoot{display:flex;justify-content:space-between;align-items:center;margin-top:12px;
+    padding-top:10px;border-top:1px dashed var(--line2);font-size:11.5px;color:var(--sub)}
+  .live{display:inline-flex;align-items:center;gap:5px;color:var(--good)}
+  .live::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--good);box-shadow:0 0 0 0 var(--good);
+    animation:pulse 2s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(95,174,140,.5)}70%{box-shadow:0 0 0 7px rgba(95,174,140,0)}100%{box-shadow:0 0 0 0 rgba(95,174,140,0)}}
+
+  /* ---- detail ---- */
+  .dhead{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);
+    padding:18px 22px;margin-bottom:16px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+    border-left:5px solid var(--stage)}
+  .dhead .avatar{width:60px;height:60px;border-radius:18px;font-size:27px}
+  .dtitle h1{font-size:23px;display:flex;align-items:center;gap:10px}
+  .dtitle .sub{color:var(--ink2);font-size:13px;margin-top:3px}
+  .dquick{display:flex;gap:20px;margin-left:auto;flex-wrap:wrap}
+  .dquick .stat b{font-size:21px}
+  .tabs{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap}
+  .tab{padding:9px 17px;border-radius:11px;font-size:13.5px;font-weight:600;color:var(--ink2);cursor:pointer;
+    background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow);transition:.15s;display:flex;gap:7px;align-items:center}
+  .tab:hover{color:var(--ink)}
+  .tab.on{background:linear-gradient(135deg,var(--accent),#b86a3c);color:#fff;border-color:transparent;box-shadow:0 6px 16px rgba(201,123,74,.3)}
+
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:18px 20px;margin-bottom:16px}
+  .panel h2{font-size:13px;color:var(--sub);letter-spacing:1.2px;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .panel h2 .tip{font-weight:400;letter-spacing:0;color:var(--sub);font-size:11.5px}
+
+  /* ---- timeline svg + feed ---- */
+  .tl-svg{width:100%;height:auto;display:block;overflow:visible}
+  .tl-svg text{font-family:inherit}
+  .legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:6px;font-size:11.5px;color:var(--ink2)}
+  .legend span{display:flex;align-items:center;gap:6px}
+  .feed{display:flex;flex-direction:column;gap:2px;max-height:560px;overflow:auto;padding-right:6px}
+  .frow{display:grid;grid-template-columns:92px 30px 1fr auto;gap:11px;align-items:center;padding:9px 8px;border-radius:11px;transition:background .15s}
+  .frow:hover{background:var(--bg)}
+  .frow.mem{opacity:.96}
+  .ficon{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-size:15px;color:#fff;flex:none}
+  .ftime{font-size:11.5px;color:var(--sub);font-variant-numeric:tabular-nums}
+  .flabel{font-size:13.5px;color:var(--ink)}
+  .fdetail{font-size:12px;color:var(--ink2);margin-top:1px}
+  .ftrust{font-size:11px;color:var(--sub);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .memstrength{height:5px;border-radius:5px;background:var(--line);overflow:hidden;width:74px;margin-top:4px}
+  .memstrength i{display:block;height:100%;background:linear-gradient(90deg,#e6c98f,#c97b4a)}
+  .seal-note{margin-top:12px;background:#f3effa;border:1px solid #e7e0f5;border-radius:11px;padding:10px 13px;
+    font-size:12.5px;color:#6f6a8a;display:flex;gap:9px;align-items:center}
+
+  /* ---- graph ---- */
+  .graph-wrap{position:relative;border-radius:14px;overflow:hidden;background:
+    radial-gradient(700px 420px at 50% 42%, #fffdf9, #f4eee4);border:1px solid var(--line)}
+  #graph{display:block;width:100%;height:560px;touch-action:none;cursor:grab}
+  #graph:active{cursor:grabbing}
+  .glegend{position:absolute;left:14px;top:14px;background:rgba(255,253,250,.9);backdrop-filter:blur(6px);
+    border:1px solid var(--line);border-radius:12px;padding:11px 13px;font-size:12px;box-shadow:var(--shadow)}
+  .glegend h4{font-size:11px;color:var(--sub);letter-spacing:1px;margin-bottom:8px}
+  .glegend .row{display:flex;align-items:center;gap:8px;margin:5px 0;color:var(--ink2)}
+  .ghint{position:absolute;right:14px;bottom:12px;font-size:11px;color:var(--sub);
+    background:rgba(255,253,250,.85);border-radius:8px;padding:5px 9px}
+  .gpanel{position:absolute;right:14px;top:14px;width:230px;background:rgba(255,253,250,.96);backdrop-filter:blur(8px);
+    border:1px solid var(--line);border-radius:14px;padding:14px 15px;box-shadow:var(--shadow-lg);
+    transform:translateX(20px);opacity:0;pointer-events:none;transition:.2s}
+  .gpanel.show{transform:none;opacity:1}
+  .gpanel .gtype{font-size:11px;color:#fff;border-radius:6px;padding:2px 8px;display:inline-block;margin-bottom:8px}
+  .gpanel .gname{font-size:17px;font-weight:700;margin-bottom:4px}
+  .gpanel .gsub{font-size:12.5px;color:var(--ink2)}
+
+  /* ---- generic bits ---- */
+  .stages-path{display:flex;align-items:center;gap:4px;margin-bottom:14px}
+  .sp{flex:1;text-align:center;font-size:11px;color:var(--sub)}
+  .sp .d{width:13px;height:13px;border-radius:50%;background:var(--line2);margin:0 auto 5px;transition:.3s}
+  .sp.done .d{background:var(--accent)}
+  .sp.cur .d{transform:scale(1.5);box-shadow:0 0 0 4px var(--accent-soft)}
+  .sp.cur{color:var(--ink);font-weight:700}
+  .bar-row{display:flex;align-items:center;gap:9px;margin:7px 0;font-size:12px}
+  .bar-row .nm{width:64px;color:var(--sub)}
+  .bar-row .vv{width:72px;text-align:right;color:var(--sub);font-variant-numeric:tabular-nums}
+  .bignum{display:flex;gap:20px;margin-bottom:12px}
+  .bignum div{text-align:center}
+  .bignum b{font-size:25px;display:block;font-variant-numeric:tabular-nums}
+  .bignum span{font-size:11px;color:var(--sub)}
+  .counters{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;font-size:12px;color:var(--sub)}
+  .counters b{color:var(--ink)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px 11px;font-size:12px}
+  .chip.joke{background:#fdeed3;border-color:#f5dcae}
+  .chip.avoid{background:#fbdfd9;border-color:#f3c7bd}
+  .chip.person{background:#e6eefa;border-color:#d3e2f5}
+  .chip.care{background:#fce4ec;border-color:#f6cdd9}
+  ul.plain{list-style:none;font-size:13px}
+  ul.plain li{padding:6px 0;border-bottom:1px dashed var(--line2)}
+  .p-kept::before{content:"✓ ";color:var(--good)}
+  .p-missed::before{content:"✗ ";color:var(--bad)}
+  .p-open::before{content:"⏳ "}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:720px){.two{grid-template-columns:1fr}}
+  textarea{width:100%;border:1px solid var(--line2);border-radius:11px;padding:10px;font-size:13px;resize:vertical;
+    min-height:46px;font-family:inherit;background:var(--bg)}
+  button.go{margin-top:9px;background:linear-gradient(135deg,var(--accent),#b86a3c);border:none;color:#fff;
+    border-radius:10px;padding:9px 18px;font-size:13px;cursor:pointer;font-weight:600;box-shadow:0 6px 16px rgba(201,123,74,.3)}
+  pre{background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:12px;font-size:11.5px;
+    white-space:pre-wrap;max-height:360px;overflow:auto;margin-top:11px;color:var(--ink2);line-height:1.6}
+  .tag{font-size:11px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:1px 7px;color:var(--sub)}
+  .muted{color:var(--sub);font-size:12.5px}
+  .empty{color:var(--sub);font-size:13px;text-align:center;padding:30px}
+  .tooltip{position:fixed;z-index:99;pointer-events:none;background:#2c2722;color:#fff;font-size:12px;
+    padding:7px 10px;border-radius:9px;box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:260px;opacity:0;transition:opacity .12s;line-height:1.45}
+  .tooltip b{color:#ffd9a8}
+  .back{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--ink2);cursor:pointer}
+  .back:hover{color:var(--accent)}
+  footer{margin-top:24px;color:var(--sub);font-size:11px;text-align:center}
 </style>
 </head>
 <body>
-<header>
-  <h1>🐾 relationshape 养成面板<small>关系是长出来的，这里看得见</small></h1>
-  <select id="userSel"></select>
-  <span class="badge" id="stageBadge">—</span>
-  <span class="meta" id="metaLine">—</span>
-</header>
-
-<div class="grid">
-  <div class="card" style="grid-column:1/-1">
-    <h2>养成进度 · 距下一阶段</h2>
-    <div class="stages" id="stagePath"></div>
-    <div id="gateBars"></div>
-    <div class="rupture" id="ruptureNote"></div>
+<div class="wrap">
+  <div class="topbar">
+    <a class="brand" href="#/"><span class="logo">🐾</span> relationshape
+      <small>关系是长出来的，这里看得见每个人的时间线与记忆图谱</small></a>
+    <div class="spacer"></div>
+    <div class="crumbs" id="crumbs"></div>
   </div>
-
-  <div class="card">
-    <h2>信任与亲密</h2>
-    <div class="bignum">
-      <div><b id="trust">—</b><span>信任</span></div>
-      <div><b id="closeness">—</b><span>亲密</span></div>
-      <div><b id="moodWord">—</b><span>此刻心境</span></div>
-    </div>
-    <div id="moodBars"></div>
-    <div class="counters" id="ledgerCounters"></div>
-  </div>
-
-  <div class="card">
-    <h2>承诺账本 · 说到做到</h2>
-    <ul class="plain" id="promises"></ul>
-  </div>
-
-  <div class="card">
-    <h2>我们的文化</h2>
-    <div id="cultureBox"></div>
-  </div>
-
-  <div class="card">
-    <h2>记忆 · 强度随遗忘曲线衰减</h2>
-    <div id="memList"></div>
-    <div style="margin-top:8px" class="chips" id="prefChips"></div>
-    <div class="sealed" id="sealedNote"></div>
-  </div>
-
-  <div class="card">
-    <h2>人格磨合 · 只动表达层，不动内核</h2>
-    <div id="adaptBars"></div>
-    <div style="margin-top:10px"><b style="font-size:12px;color:var(--sub)">它说过的自己（自述账本，防人设矛盾）</b>
-      <div class="chips" id="claimChips" style="margin-top:6px"></div></div>
-    <ul class="plain" id="lessons"></ul>
-  </div>
-
-  <div class="card" style="grid-column:1/-1">
-    <h2>每轮记忆调用 · 最近 20 轮（每一轮都会查询记忆，相关才注入——这里看得见）</h2>
-    <ul class="plain" id="traceList"></ul>
-  </div>
-
-  <div class="card" style="grid-column:1/-1">
-    <h2>指令试驾 · 输入一句话，看引擎此刻会怎么派戏（干跑，不影响真实状态）</h2>
-    <textarea id="probeText" placeholder="例如：我今天有点难过 / 你爱我吗 / 同桌抢我橡皮"></textarea>
-    <button onclick="preview()">看本轮指令</button>
-    <pre id="previewOut" style="display:none"></pre>
-  </div>
+  <div id="app"></div>
+  <footer>纯本地可视化 · 零依赖（力导向图谱与轨迹均手写） · 封存区内容永不展示 · 数据来自引擎状态文件</footer>
 </div>
-<footer>纯本地调试面板 · 封存区内容永不展示 · 数据来自引擎状态文件，每 5 秒刷新</footer>
+<div class="tooltip" id="tip"></div>
 
 <script>
-const STAGES = ["陌生","相识","熟悉","同伴","知己"];
-let user = null;
+const STAGES=["stranger","acquaintance","familiar","companion","confidant"];
+const STAGE_ZH={stranger:"陌生",acquaintance:"相识",familiar:"熟悉",companion:"同伴",confidant:"知己"};
+const STAGE_C={stranger:"#8a94a6",acquaintance:"#5b8bd0",familiar:"#2bb1a8",companion:"#f0a13e",confidant:"#e8638a"};
+const STAGE_D={stranger:"#6d7787",acquaintance:"#3f6fb5",familiar:"#1d9189",companion:"#d4832a",confidant:"#cf4c74"};
+const EVENT_META={
+  meet:{i:"🌱",zh:"初次相遇",c:"#7c9c6b"}, session:{i:"·",zh:"见面",c:"#b3a99c"},
+  reunion:{i:"🔄",zh:"久别重逢",c:"#5b8bd0"}, stage_up:{i:"✦",zh:"关系进阶",c:"#f0a13e"},
+  stage_down:{i:"▽",zh:"关系降温",c:"#b08968"}, milestone:{i:"🎉",zh:"里程碑",c:"#e0a72b"},
+  rupture:{i:"⚡",zh:"出现裂痕",c:"#e07a6b"}, repair:{i:"🩹",zh:"裂痕修复",c:"#5fae8c"},
+  disclosure:{i:"🔑",zh:"深表露",c:"#9b7cc4"}, promise:{i:"🤝",zh:"许下约定",c:"#6b8cae"},
+  promise_kept:{i:"✅",zh:"兑现约定",c:"#5fae8c"}, promise_missed:{i:"❌",zh:"约定落空",c:"#d08c6b"},
+  joke:{i:"😄",zh:"诞生专属梗",c:"#e8a13e"}, safety:{i:"🛡",zh:"危机·封存",c:"#8a86b8"},
+};
+const NODE_META={
+  user:{c:"#3a3530",zh:"TA"}, person:{c:"#5b8bd0",zh:"身边的人"}, like:{c:"#5fae8c",zh:"喜欢"},
+  dislike:{c:"#e07a6b",zh:"雷区"}, cared:{c:"#e8638a",zh:"最在乎"}, joke:{c:"#e8a13e",zh:"专属梗"},
+  memory:{c:"#c79a5b",zh:"记忆"},
+};
+const MAJOR=new Set(["meet","reunion","stage_up","stage_down","milestone","rupture","repair","disclosure","promise","promise_kept","promise_missed","joke","safety"]);
 
-async function j(url, opt) { const r = await fetch(url, opt); return r.json(); }
+const tip=document.getElementById("tip");
+const app=document.getElementById("app");
+const j=(u,o)=>fetch(u,o).then(r=>r.json());
+const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+const enc=encodeURIComponent;
+function shadeA(hex,a){const n=parseInt(hex.slice(1),16);return`rgba(${n>>16&255},${n>>8&255},${n&255},${a})`}
+function relDay(d){if(d==null)return"—";if(d<=0)return"今天活跃";if(d===1)return"昨天";return d+"天前活跃"}
+function showTip(html,x,y){tip.innerHTML=html;tip.style.opacity=1;const w=tip.offsetWidth,h=tip.offsetHeight;
+  tip.style.left=Math.min(x+14,innerWidth-w-8)+"px";tip.style.top=Math.max(8,y-h-10)+"px"}
+function hideTip(){tip.style.opacity=0}
 
-function bar(name, pct, valText, full) {
-  return `<div class="bar-row"><span class="name">${name}</span>
-    <span class="bar"><i class="${full?'full':''}" style="width:${pct}%"></i></span>
-    <span class="val">${valText}</span></div>`;
+/* ============================ router ============================ */
+function router(){
+  const h=location.hash.replace(/^#/,"")||"/";
+  const m=h.match(/^\/u\/([^/]+)(?:\/(\w+))?/);
+  if(m){renderUser(decodeURIComponent(m[1]),m[2]||"timeline")}
+  else{renderGallery()}
+}
+window.addEventListener("hashchange",router);
+
+function crumbs(parts){document.getElementById("crumbs").innerHTML=
+  parts.map((p,i)=>(i?'<span class="sep">/</span>':'')+(p.href?`<a href="${p.href}">${esc(p.t)}</a>`:`<span>${esc(p.t)}</span>`)).join("")}
+
+/* ============================ gallery ============================ */
+async function renderGallery(){
+  crumbs([{t:"所有用户"}]);
+  app.innerHTML=`<div class="empty">加载用户世界…</div>`;
+  const d=await j("/api/users");
+  if(d.error||!d.users){app.innerHTML=`<div class="empty">读取失败：${esc(d.error||"无数据")}</div>`;return}
+  const ag=d.aggregate;
+  const total=ag.total_users||1;
+  const distbar=STAGES.map(s=>{const n=ag.stage_dist[s]||0;return n?`<i style="flex:${n};background:${STAGE_C[s]}" title="${STAGE_ZH[s]} ${n}"></i>`:""}).join("");
+  const distleg=STAGES.map(s=>`<span><i class="dot" style="background:${STAGE_C[s]}"></i>${STAGE_ZH[s]} ${ag.stage_dist[s]||0}</span>`).join("");
+  const cards=d.users.map(cardHTML).join("");
+  app.innerHTML=`
+    <div class="hero">
+      <div>
+        <h1>关系世界 · 共 ${ag.total_users} 段关系</h1>
+        <p>每段关系都是「${esc(d.character)}」与一个人随时间长出来的——独立的信任、记忆、心境与磨合。点开任意一个人，看 TA 的关系时间线与记忆图谱。</p>
+        <div class="stats">
+          <div class="stat"><b>${ag.total_memories}</b><span>共同记忆（条）</span></div>
+          <div class="stat"><b>${ag.avg_trust}</b><span>平均信任</span></div>
+          <div class="stat"><b>${ag.total_people}</b><span>记住的身边人</span></div>
+          <div class="stat"><b>${ag.total_jokes}</b><span>专属梗</span></div>
+          ${ag.total_sealed?`<div class="stat"><b style="color:var(--secret)">${ag.total_sealed}</b><span>🛡 封存（不展示）</span></div>`:""}
+        </div>
+      </div>
+      <div class="dist">
+        <h3>关系阶段分布</h3>
+        <div class="distbar">${distbar||'<i style="flex:1;background:var(--line)"></i>'}</div>
+        <div class="distlegend">${distleg}</div>
+      </div>
+    </div>
+    <div class="grid">${cards}</div>`;
 }
 
-async function loadUsers() {
-  const users = await j('/api/users');
-  const sel = document.getElementById('userSel');
-  sel.innerHTML = users.map(u=>`<option>${u}</option>`).join('') || '<option>（暂无用户）</option>';
-  if (users.length) { user = users[0]; sel.value = user; }
-  sel.onchange = () => { user = sel.value; refresh(); };
+function cardHTML(c){
+  const s=c.stage;
+  const vars=`--stage:${STAGE_C[s]};--stage-d:${STAGE_D[s]};--stage-a:${shadeA(STAGE_C[s],.4)}`;
+  const tc=Math.round(c.trust), cl=Math.round(c.closeness);
+  const chips=[`认识 ${c.days_known} 天`,`见面 ${c.sessions} 次`,`记忆 ${c.episodes}`];
+  if(c.people)chips.push(`👤 ${c.people}`);
+  if(c.inside_jokes)chips.push(`😄 ${c.inside_jokes}`);
+  return `<a class="ucard" style="${vars}" href="#/u/${enc(c.user_id)}">
+    <div class="glow"></div>
+    <div class="uhead">
+      <div class="avatar">${esc((c.name||"·").slice(0,1))}</div>
+      <div style="min-width:0">
+        <div class="uname">${esc(c.name)} <span class="sbadge">${c.stage_zh}</span></div>
+        <div class="umeta">与「${esc(c.character)}」· 心境 ${esc(c.mood_word)}</div>
+      </div>
+    </div>
+    <div class="ubars">
+      <div class="ubar"><span class="nm">信任</span><span class="track"><i style="width:${tc}%;background:${STAGE_C[s]}"></i></span><span class="vv">${tc}</span></div>
+      <div class="ubar"><span class="nm">亲密</span><span class="track"><i style="width:${cl}%;background:${shadeA(STAGE_C[s],.55)}"></i></span><span class="vv">${cl}</span></div>
+    </div>
+    ${sparkSVG(c.trust_spark,STAGE_C[s])}
+    <div class="uchips">${chips.map(x=>`<span class="uchip">${esc(x)}</span>`).join("")}
+      ${c.sealed?`<span class="uchip lock">🛡 封存 ${c.sealed}</span>`:""}</div>
+    <div class="ufoot"><span class="live">${relDay(c.last_seen_days)}</span><span>查看时间线 →</span></div>
+  </a>`;
 }
 
-async function refresh() {
-  if (!user) return;
-  const s = await j('/api/state/' + encodeURIComponent(user));
-  if (s.error) return;
-  document.getElementById('stageBadge').textContent = s.stage_label.split('（')[0];
-  document.getElementById('metaLine').textContent =
-    `${s.character} ✕ ${s.memory.user_name || s.user_id} · 认识 ${s.days_known} 天 · 见面 ${s.sessions} 次` +
-    (s.milestones.length ? ` · 已庆祝里程碑：${s.milestones.join('/')}天` : '');
-
-  document.getElementById('stagePath').innerHTML = STAGES.map((n,i)=>
-    `<div class="stage-dot ${i<s.stage_index?'done':i===s.stage_index?'cur':''}"><div class="dot"></div>${n}</div>`).join('');
-
-  const g = s.gate;
-  document.getElementById('gateBars').innerHTML = g.next_stage
-    ? `<div class="meta" style="margin-bottom:6px">下一站：${g.next_stage}</div>` +
-      g.items.map(it=>bar(it.name, it.pct, `${it.cur}/${it.need}`, it.pct>=100)).join('')
-    : '<div class="meta">已抵达最高阶段——剩下的路叫日常。</div>';
-  document.getElementById('ruptureNote').textContent =
-    g.rupture_block ? '⚠ 有未修复的裂痕，晋升暂停——和好之后才继续生长' : '';
-
-  document.getElementById('trust').textContent = s.ledger.trust;
-  document.getElementById('closeness').textContent = s.ledger.closeness;
-  document.getElementById('moodWord').textContent = s.mood.word;
-  const pads = [["愉悦",s.mood.p],["唤起",s.mood.a],["底气",s.mood.d]];
-  document.getElementById('moodBars').innerHTML =
-    pads.map(([n,v])=>bar(n, Math.round((v+1)*50), v.toFixed(2), false)).join('');
-  const L = s.ledger;
-  document.getElementById('ledgerCounters').innerHTML =
-    `<div>实质对话 <b>${L.substantive}</b></div><div>自我表露 <b>${L.disclosures}</b></div>
-     <div>深度表露 <b>${L.deep}</b></div><div>守约/失约 <b>${L.promises_kept}/${L.promises_broken}</b></div>
-     <div>裂痕未修 <b>${L.ruptures_open}</b></div><div>裂痕已修 <b>${L.repaired}</b></div>`;
-
-  document.getElementById('promises').innerHTML = s.promises.length
-    ? s.promises.map(p=>`<li class="p-${p.status}">${p.text}</li>`).join('')
-    : '<li class="meta">还没有承诺——许诺要慎重，兑现是信任的第一来源。</li>';
-
-  const c = s.culture;
-  document.getElementById('cultureBox').innerHTML =
-    (c.address?`<div style="font-size:13px;margin-bottom:8px">专属称呼：<b>「${c.address}」</b></div>`:'') +
-    `<div class="chips">${c.jokes.map(x=>`<span class="chip joke">😄 ${x}</span>`).join('')||'<span class="meta">内部梗会从一起笑过的瞬间里长出来</span>'}</div>`;
-  document.getElementById('lessons').innerHTML =
-    c.lessons.map(x=>`<li>📝 ${x}</li>`).join('');
-  document.getElementById('claimChips').innerHTML =
-    c.claims.map(x=>`<span class="chip">${x}</span>`).join('') || '<span class="meta">（暂无）</span>';
-
-  document.getElementById('memList').innerHTML = s.memory.episodes.map(m=>
-    `<div class="mem">${m.text}<span class="tag">${m.days}天前${m.recalls?` · 想起过${m.recalls}次`:''}${m.vulnerable?' · 🔒秘密级':''}</span>
-     <div class="bar"><i style="width:${Math.round(m.strength*100)}%"></i></div></div>`).join('')
-    || '<div class="meta">还没有共同记忆</div>';
-  document.getElementById('prefChips').innerHTML =
-    s.memory.preferences.map(x=>`<span class="chip">❤ ${x}</span>`).join('') +
-    s.memory.aversions.map(x=>`<span class="chip avoid">✋ ${x}</span>`).join('') +
-    s.memory.people.map(p=>`<span class="chip">👤 ${p.name}</span>`).join('');
-  document.getElementById('sealedNote').textContent =
-    `🔒 封存区：${s.memory.sealed_count} 条（危机相关内容，永不召回、永不展示）`;
-
-  document.getElementById('traceList').innerHTML = (s.traces||[]).map(t=>{
-    const rec = (t.recalled||[]);
-    const chips = rec.map(r=>`<span class="chip ${r.kind==='remote'?'joke':''}">${r.kind==='remote'?'☁':r.kind==='profile'?'👤':'💭'} ${r.text}</span>`).join(' ');
-    return `<li><span class="tag">${(t.t||'').slice(5,16).replace('T',' ')}</span> ${t.text}
-      ${t.itype==='safety' ? '<span class="tag">🔒安全轮</span>'
-        : rec.length ? `<b style="color:var(--good)">✓召回${rec.length}条</b> <span class="chips" style="display:inline-flex">${chips}</span>`
-        : '<span class="meta">— 本轮无相关记忆（查询过，未达相关阈值）</span>'}</li>`;
-  }).join('') || '<li class="meta">还没有对话记录</li>';
-
-  const a = s.adaptation;
-  const humorZh = {affiliative:"亲和玩笑", self_enhancing:"自嘲", callback:"内部梗", wordplay:"谐音梗", playful_tease:"打趣"};
-  document.getElementById('adaptBars').innerHTML =
-    bar("正式度", a.formality*100, a.formality, false) +
-    bar("能量", a.energy*100, a.energy, false) +
-    Object.entries(a.humor).map(([k,v])=>bar(humorZh[k]||k, v*100, v, v>=0.62)).join('');
+function sparkSVG(arr,color){
+  if(!arr||arr.length<2)return`<div class="spark"></div>`;
+  const W=260,H=30,mx=Math.max(...arr,1),mn=Math.min(...arr,0),rng=(mx-mn)||1;
+  const pts=arr.map((v,i)=>[i/(arr.length-1)*W,H-2-(v-mn)/rng*(H-5)]);
+  const dLine=pts.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" ");
+  const dArea=dLine+` L${W} ${H} L0 ${H} Z`;
+  return`<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    <defs><linearGradient id="g${color.slice(1)}" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="${color}" stop-opacity=".28"/><stop offset="1" stop-color="${color}" stop-opacity="0"/>
+    </linearGradient></defs>
+    <path d="${dArea}" fill="url(#g${color.slice(1)})"/>
+    <path d="${dLine}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  </svg>`;
 }
 
-async function preview() {
-  const text = document.getElementById('probeText').value.trim();
-  if (!text || !user) return;
-  const out = document.getElementById('previewOut');
-  out.style.display = 'block';
-  out.textContent = '…';
-  const r = await j('/api/preview', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({user_id:user, text})});
-  const recLine = r.recalled && r.recalled.length
-    ? `🧠 本轮召回 ${r.recalled.length} 条记忆：` + r.recalled.map(m=>`「${m.text}」(${m.days}天前${m.kind==='remote'?'·远端':''})`).join('、') + (r.profile?' + 人物档案':'') + '\n'
-    : '🧠 本轮无相关记忆注入（已查询，未达阈值）\n';
-  out.textContent = r.error ? ('出错：'+r.error)
-    : recLine + `识别：${r.input_type} · 角色情绪：${r.emotion} · 动作：${r.acts.join('→')}`
-      + `${r.humor?' · 含幽默':''}${r.reward?' · 奖励:'+r.reward:''}${r.safety?' · ⚠安全接管':''}\n\n${r.prompt_context}`;
+/* ============================ user detail ============================ */
+let CUR=null;
+async function renderUser(uid,tab){
+  crumbs([{t:"所有用户",href:"#/"},{t:uid}]);
+  app.innerHTML=`<div class="empty">加载 ${esc(uid)} 的关系…</div>`;
+  const st=await j("/api/state/"+enc(uid));
+  if(st.error){app.innerHTML=`<div class="empty">读取失败：${esc(st.error)}</div>`;return}
+  CUR=st;
+  const s=st.stage, name=st.memory.user_name||st.user_id;
+  const vars=`--stage:${STAGE_C[s]};--stage-d:${STAGE_D[s]};--stage-a:${shadeA(STAGE_C[s],.4)}`;
+  const tabs=[["timeline","🕒 关系时间线"],["graph","🕸 记忆图谱"],["profile","📋 关系档案"]];
+  app.innerHTML=`
+    <div class="dhead" style="${vars}">
+      <div class="avatar">${esc(name.slice(0,1))}</div>
+      <div class="dtitle">
+        <h1>${esc(name)} <span class="sbadge" style="font-size:12px">${st.stage_label.split("（")[0]}</span></h1>
+        <div class="sub">与「${esc(st.character)}」· 认识 ${st.days_known} 天 · 见面 ${st.sessions} 次 · 此刻心境「${esc(st.mood.word)}」${st.milestones.length?` · 已庆祝 ${st.milestones.join("/")} 天里程碑`:""}</div>
+      </div>
+      <div class="dquick">
+        <div class="stat"><b style="color:${STAGE_C[s]}">${st.ledger.trust}</b><span>信任</span></div>
+        <div class="stat"><b style="color:${STAGE_C[s]}">${st.ledger.closeness}</b><span>亲密</span></div>
+        <div class="stat"><b>${st.memory.episodes.length}</b><span>共同记忆</span></div>
+      </div>
+    </div>
+    <div class="tabs">${tabs.map(([k,l])=>`<a class="tab ${k===tab?'on':''}" href="#/u/${enc(uid)}/${k}">${l}</a>`).join("")}</div>
+    <div id="tabbody"></div>`;
+  if(tab==="graph")viewGraph(uid);
+  else if(tab==="profile")viewProfile(st);
+  else viewTimeline(uid);
 }
 
-loadUsers().then(refresh);
-setInterval(refresh, 5000);
+/* ---------------------------- timeline ---------------------------- */
+async function viewTimeline(uid){
+  const body=document.getElementById("tabbody");
+  body.innerHTML=`<div class="panel"><div class="empty">加载时间线…</div></div>`;
+  const d=await j("/api/timeline/"+enc(uid));
+  if(d.error){body.innerHTML=`<div class="panel"><div class="empty">${esc(d.error)}</div></div>`;return}
+  body.innerHTML=`
+    <div class="panel">
+      <h2>关系动态 · 随时间生长 <span class="tip">背景色=当时的关系阶段 · 上方折线=信任/亲密的真实轨迹 · 圆点=关系大事</span></h2>
+      <div id="tlchart"></div>
+      <div class="legend">
+        <span><i class="dot" style="background:${STAGE_C.familiar}"></i>信任轨迹</span>
+        <span><i class="dot" style="background:${shadeA(STAGE_C.familiar,.5)}"></i>亲密轨迹</span>
+        <span>✦ 进阶</span><span>🎉 里程碑</span><span>⚡ 裂痕</span><span>🩹 修复</span>
+        <span>🔑 深表露</span><span>🤝 约定</span><span>😄 专属梗</span><span>🛡 危机·封存</span>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>记忆在时间线上的分布 <span class="tip">每个点=一条记忆 · 越高/越大=当前越鲜明（艾宾浩斯遗忘曲线，被想起会延寿）</span></h2>
+      <div id="memchart"></div>
+      ${d.sealed_count?`<div class="seal-note">🛡 另有 <b>&nbsp;${d.sealed_count}&nbsp;</b> 条危机相关记忆进入封存区——永不召回、永不展示，连时间线也只留一个不含内容的标记。</div>`:""}
+    </div>
+    <div class="panel">
+      <h2>大事记 + 记忆流 · 完整时间序（最近在上）</h2>
+      <div class="feed" id="feed"></div>
+    </div>`;
+  drawTrajectory(document.getElementById("tlchart"),d);
+  drawMemoryLane(document.getElementById("memchart"),d);
+  drawFeed(document.getElementById("feed"),d);
+}
+
+function timeMapper(d,W,padL,padR){
+  const t0=new Date(d.first_met||d.series[0]?.t).getTime();
+  const t1=Date.now();
+  const span=(t1-t0)||1;
+  return t=>padL+(new Date(t).getTime()-t0)/span*(W-padL-padR);
+}
+
+function drawTrajectory(host,d){
+  const W=1000,H=300,padL=46,padR=20,top=58,bot=210;
+  const x=timeMapper(d,W,padL,padR);
+  const yT=v=>bot-Math.max(0,Math.min(100,v))/100*(bot-top);
+  // stage bands from series
+  let bands="";const seg=[];
+  if(d.series.length){
+    let cur={stage:d.series[0].stage,t0:d.first_met||d.series[0].t};
+    for(const p of d.series){if(p.stage!==cur.stage){cur.t1=p.t;seg.push(cur);cur={stage:p.stage,t0:p.t}}}
+    cur.t1=new Date().toISOString();seg.push(cur);
+  }
+  for(const g of seg){const x0=x(g.t0),x1=x(g.t1);
+    bands+=`<rect x="${x0.toFixed(1)}" y="${top-20}" width="${Math.max(0,x1-x0).toFixed(1)}" height="${bot-top+20}" fill="${shadeA(STAGE_C[g.stage],.10)}"/>`;
+    if(x1-x0>54)bands+=`<text x="${((x0+x1)/2).toFixed(1)}" y="${top-26}" text-anchor="middle" font-size="11" fill="${STAGE_D[g.stage]}" font-weight="600">${STAGE_ZH[g.stage]}</text>`;
+  }
+  // gridlines
+  let grid="";for(const v of [0,25,50,75,100]){const y=yT(v);
+    grid+=`<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="#eee5d8" stroke-width="1"/>`;
+    grid+=`<text x="${padL-8}" y="${y+3}" text-anchor="end" font-size="10" fill="#b6ab9d">${v}</text>`}
+  // trajectory polylines
+  const tl=d.series.map(p=>[x(p.t),yT(p.trust)]);
+  const cl=d.series.map(p=>[x(p.t),yT(p.closeness)]);
+  const poly=a=>a.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" ");
+  let lines="";
+  if(cl.length)lines+=`<path d="${poly(cl)}" fill="none" stroke="${shadeA(STAGE_C[d.stage]||'#888',.5)}" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round"/>`;
+  if(tl.length){const area=poly(tl)+` L${tl[tl.length-1][0].toFixed(1)} ${bot} L${tl[0][0].toFixed(1)} ${bot} Z`;
+    lines+=`<path d="${area}" fill="${shadeA(STAGE_C[d.stage]||'#888',.07)}"/>`;
+    lines+=`<path d="${poly(tl)}" fill="none" stroke="${STAGE_C[d.stage]||'#888'}" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>`;
+    for(const p of tl)lines+=`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2.2" fill="${STAGE_C[d.stage]||'#888'}"/>`;
+  }
+  // now marker
+  const nx=x(new Date().toISOString());
+  let nowm=`<line x1="${nx.toFixed(1)}" y1="${top-20}" x2="${nx.toFixed(1)}" y2="${bot}" stroke="#d8c9b0" stroke-width="1" stroke-dasharray="3 3"/>
+    <text x="${(nx-4).toFixed(1)}" y="${top-26}" text-anchor="end" font-size="10" fill="#b6ab9d">现在</text>`;
+  // event pins (major), staggered
+  let pins="";const lv=[0,18,36];let i=0;
+  for(const e of d.events){if(!MAJOR.has(e.kind))continue;const m=EVENT_META[e.kind]||{i:"•",c:"#999"};
+    const px=x(e.t),py=(e.trust!=null?yT(e.trust):top);const ly=top-8-lv[i++%lv.length];
+    pins+=`<line x1="${px.toFixed(1)}" y1="${ly+9}" x2="${px.toFixed(1)}" y2="${py.toFixed(1)}" stroke="${shadeA(m.c,.5)}" stroke-width="1.3"/>`;
+    pins+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3.6" fill="${m.c}" stroke="#fffdfa" stroke-width="1.5"/>`;
+    pins+=`<g class="pin" data-tip="${esc(m.zh+' · 信任'+(e.trust??'-')+(e.detail?(' · '+e.detail):''))}" data-t="${esc(fmtT(e.t))}">
+      <circle cx="${px.toFixed(1)}" cy="${ly.toFixed(1)}" r="10" fill="#fffdfa" stroke="${m.c}" stroke-width="1.6"/>
+      <text x="${px.toFixed(1)}" y="${(ly+4).toFixed(1)}" text-anchor="middle" font-size="11">${m.i}</text></g>`;
+  }
+  // date axis
+  let axis="";const t0=new Date(d.first_met).getTime(),t1=Date.now();
+  for(let k=0;k<=4;k++){const tt=t0+(t1-t0)*k/4;const xx=padL+(W-padL-padR)*k/4;
+    axis+=`<text x="${xx.toFixed(1)}" y="${bot+22}" text-anchor="${k===0?'start':k===4?'end':'middle'}" font-size="10" fill="#a99e8f">${fmtDate(tt)}</text>`}
+  host.innerHTML=`<svg class="tl-svg" viewBox="0 0 ${W} ${H}">${bands}${grid}${nowm}${lines}${pins}${axis}</svg>`;
+  wirePins(host);
+}
+
+function drawMemoryLane(host,d){
+  if(!d.memories.length){host.innerHTML=`<div class="empty">还没有共同记忆</div>`;return}
+  const W=1000,H=140,padL=46,padR=20,top=18,bot=104;
+  const x=timeMapper(d,W,padL,padR);
+  const yS=s=>bot-Math.max(0,Math.min(1,s))*(bot-top);
+  let grid="";for(const[s,lab] of [[1,"鲜明"],[0.5,"半记得"],[0.08,"将淡忘"]]){const y=yS(s);
+    grid+=`<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="#eee5d8" stroke-dasharray="2 4"/>
+      <text x="${padL-8}" y="${y+3}" text-anchor="end" font-size="9.5" fill="#bbb0a1">${lab}</text>`}
+  let dots="";
+  for(const m of d.memories){const px=x(m.t),py=yS(m.strength),r=2.4+5*m.strength;
+    const col=m.valence>0.15?"#d99a4e":m.valence<-0.15?"#7fa3c9":"#bdae93";
+    dots+=`<g class="pin" data-tip="${esc('「'+m.text+'」')}" data-t="${esc(m.days_ago+'天前形成 · 当前鲜明度'+Math.round(m.strength*100)+'%'+(m.recalls?(' · 被想起'+m.recalls+'次'):'')+(m.vulnerable?' · 🔒秘密级':''))}">
+      <circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${r.toFixed(1)}" fill="${shadeA(col,.5+.5*m.strength)}" stroke="${col}" stroke-width="1"/>
+      ${m.vulnerable?`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${(r+2.5).toFixed(1)}" fill="none" stroke="${col}" stroke-width="1" stroke-dasharray="2 2"/>`:""}
+      ${m.recalls?`<circle cx="${(px+r+1).toFixed(1)}" cy="${(py-r).toFixed(1)}" r="1.6" fill="#5fae8c"/>`:""}</g>`}
+  host.innerHTML=`<svg class="tl-svg" viewBox="0 0 ${W} ${H}">${grid}${dots}</svg>`;
+  wirePins(host);
+}
+
+function wirePins(host){
+  host.querySelectorAll(".pin").forEach(g=>{
+    g.style.cursor="pointer";
+    g.addEventListener("mousemove",e=>showTip(`<b>${g.dataset.t}</b><br>${g.dataset.tip}`,e.clientX,e.clientY));
+    g.addEventListener("mouseleave",hideTip);
+  });
+}
+
+function drawFeed(host,d){
+  const items=[];
+  for(const e of d.events){const m=EVENT_META[e.kind]||{i:"•",c:"#999",zh:e.kind};
+    items.push({t:e.t,sort:e.t,icon:m.i,c:m.c,label:e.label||m.zh,detail:e.detail||"",trust:e.trust,mem:false})}
+  for(const m of d.memories){
+    items.push({t:m.t,sort:m.t,icon:"🧠",c:"#c79a5b",label:m.text,
+      detail:`鲜明度 ${Math.round(m.strength*100)}%${m.recalls?` · 被想起 ${m.recalls} 次`:""}${m.vulnerable?" · 🔒秘密级":""}`,
+      strength:m.strength,mem:true})}
+  items.sort((a,b)=>a.sort<b.sort?1:a.sort>b.sort?-1:0);
+  host.innerHTML=items.map(it=>`
+    <div class="frow ${it.mem?'mem':''}">
+      <div class="ftime">${esc(fmtT(it.t))}</div>
+      <div class="ficon" style="background:${it.c}">${it.icon}</div>
+      <div><div class="flabel">${esc(it.label)}</div>
+        ${it.detail?`<div class="fdetail">${esc(it.detail)}</div>`:""}
+        ${it.mem?`<div class="memstrength"><i style="width:${Math.round(it.strength*100)}%"></i></div>`:""}</div>
+      <div class="ftrust">${it.trust!=null&&!it.mem?`信任 ${it.trust}`:""}</div>
+    </div>`).join("")||`<div class="empty">还没有记录</div>`;
+}
+
+function fmtT(s){const d=new Date(s);if(isNaN(d))return s;
+  return `${d.getMonth()+1}月${d.getDate()}日 ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`}
+function fmtDate(t){const d=new Date(t);return `${d.getMonth()+1}/${d.getDate()}`}
+
+/* ---------------------------- knowledge graph ---------------------------- */
+let GRAPH=null;
+async function viewGraph(uid){
+  const body=document.getElementById("tabbody");
+  body.innerHTML=`<div class="panel"><div class="empty">加载记忆图谱…</div></div>`;
+  const d=await j("/api/graph/"+enc(uid));
+  if(d.error){body.innerHTML=`<div class="panel"><div class="empty">${esc(d.error)}</div></div>`;return}
+  const legend=Object.entries(NODE_META).map(([k,v])=>`<div class="row"><i class="dot" style="background:${v.c}"></i>${v.zh}</div>`).join("");
+  const cn=d.counts;
+  body.innerHTML=`
+    <div class="panel">
+      <h2>记忆库 · 知识图谱 <span class="tip">以 ${esc(d.name)} 为中心，向身边的人/喜好/雷区/最在乎/专属梗/记忆辐射 · 可拖动、滚轮缩放</span></h2>
+      <div class="graph-wrap">
+        <canvas id="graph"></canvas>
+        <div class="glegend"><h4>图例</h4>${legend}</div>
+        <div class="gpanel" id="gpanel"></div>
+        <div class="ghint">拖动节点整理布局 · 滚轮缩放 · 空白处拖拽平移</div>
+      </div>
+      <div class="legend" style="margin-top:12px">
+        <span>👤 身边的人 ${cn.people}</span><span>❤ 喜好 ${cn.likes}</span><span>✋ 雷区 ${cn.dislikes}</span>
+        <span>⭐ 最在乎 ${cn.cared}</span><span>😄 专属梗 ${cn.jokes}</span>
+        <span>🧠 记忆 ${cn.memories}（图谱展示最显著的）</span>
+        ${d.sealed_count?`<span style="color:var(--secret)">🛡 封存 ${d.sealed_count}（不入图谱）</span>`:""}
+      </div>
+    </div>`;
+  if(GRAPH)GRAPH.destroy();
+  GRAPH=new ForceGraph(document.getElementById("graph"),d);
+}
+
+class ForceGraph{
+  constructor(canvas,data){
+    this.cv=canvas;this.ctx=canvas.getContext("2d");
+    this.nodes=data.nodes.map(n=>({...n,x:0,y:0,vx:0,vy:0}));
+    this.byId={};this.nodes.forEach(n=>this.byId[n.id]=n);
+    this.edges=data.edges.filter(e=>this.byId[e.source]&&this.byId[e.target]);
+    this.adj={};this.edges.forEach(e=>{(this.adj[e.source]=this.adj[e.source]||new Set()).add(e.target);
+      (this.adj[e.target]=this.adj[e.target]||new Set()).add(e.source)});
+    this.cam={x:0,y:0,z:1};this.alpha=1;this.hover=null;this.drag=null;this.panning=null;this.sel=null;
+    // seed positions: clusters by type angle
+    const ang={person:-1.3,like:0.5,dislike:2.2,cared:-2.4,joke:1.5,memory:3.0,user:0};
+    let k=0;this.nodes.forEach(n=>{if(n.id==="__user__"){n.x=0;n.y=0;return}
+      const a=(ang[n.type]||0)+(k++%7-3)*0.16+Math.random()*.3;const rad=120+(n.type==="memory"?120:40)+Math.random()*40;
+      n.x=Math.cos(a)*rad;n.y=Math.sin(a)*rad});
+    this.resize();this._ro=new ResizeObserver(()=>this.resize());this._ro.observe(canvas);
+    this.bind();this.running=true;this.loop();
+  }
+  resize(){const r=this.cv.getBoundingClientRect();const dpr=Math.min(devicePixelRatio||1,2);
+    this.W=r.width;this.Hh=r.height;this.cv.width=r.width*dpr;this.cv.height=r.height*dpr;
+    this.ctx.setTransform(dpr,0,0,dpr,0,0)}
+  s2w(sx,sy){return{x:(sx-this.W/2)/this.cam.z-this.cam.x,y:(sy-this.Hh/2)/this.cam.z-this.cam.y}}
+  radius(n){if(n.type==="user")return 30;if(n.type==="memory")return 7+9*(n.strength||0.2);
+    return 11+2.4*Math.min(3,(n.weight||1))}
+  linkLen(e){const t=this.byId[e.target].type;if(e.kind==="ref")return 64;
+    return({cared:78,person:128,like:120,dislike:120,joke:120,memory:172})[e.kind]||120}
+  step(){
+    const n=this.nodes,rep=2600;
+    for(let i=0;i<n.length;i++){const a=n[i];
+      for(let k2=i+1;k2<n.length;k2++){const b=n[k2];let dx=a.x-b.x,dy=a.y-b.y,d2=dx*dx+dy*dy||0.01;
+        if(d2>90000)continue;const d=Math.sqrt(d2),f=rep/d2;const fx=dx/d*f,fy=dy/d*f;
+        a.vx+=fx;a.vy+=fy;b.vx-=fx;b.vy-=fy}}
+    for(const e of this.edges){const a=this.byId[e.source],b=this.byId[e.target];
+      let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||0.01;const L=this.linkLen(e);
+      const f=(d-L)*(e.kind==="ref"?0.012:0.026);const fx=dx/d*f,fy=dy/d*f;
+      a.vx+=fx;a.vy+=fy;b.vx-=fx;b.vy-=fy}
+    for(const a of n){a.vx+=-a.x*0.004;a.vy+=-a.y*0.004;
+      if(a===this.drag)continue;a.vx*=0.86;a.vy*=0.86;a.x+=a.vx*this.alpha;a.y+=a.vy*this.alpha}
+    const u=this.byId["__user__"];if(u&&u!==this.drag){u.x*=0.8;u.y*=0.8}
+    if(this.alpha>0.04)this.alpha*=0.992}
+  loop(){if(!this.running)return;this.step();this.draw();requestAnimationFrame(()=>this.loop())}
+  draw(){const c=this.ctx,W=this.W,H=this.Hh;c.clearRect(0,0,W,H);
+    c.save();c.translate(W/2,H/2);c.scale(this.cam.z,this.cam.z);c.translate(this.cam.x,this.cam.y);
+    const hl=this.hover||this.sel;const near=hl?this.adj[hl.id]:null;
+    for(const e of this.edges){const a=this.byId[e.source],b=this.byId[e.target];
+      const on=hl&&(e.source===hl.id||e.target===hl.id);
+      c.beginPath();c.moveTo(a.x,a.y);c.lineTo(b.x,b.y);
+      c.strokeStyle=e.kind==="ref"?(on?"rgba(150,130,90,.6)":"rgba(170,150,110,.22)")
+        :(on?shadeA(NODE_META[b.type]?.c||"#999",.7):"rgba(120,108,92,.16)");
+      c.lineWidth=e.kind==="ref"?1:(on?1.8:1.1);c.stroke()}
+    for(const nd of this.nodes){const r=this.radius(nd);const meta=NODE_META[nd.type]||{c:"#999"};
+      const dim=hl&&nd!==hl&&!(near&&near.has(nd.id));
+      c.globalAlpha=dim?0.32:1;
+      c.beginPath();c.arc(nd.x,nd.y,r,0,7);
+      if(nd.type==="user"){const g=c.createRadialGradient(nd.x-6,nd.y-6,4,nd.x,nd.y,r);
+        g.addColorStop(0,"#5a524a");g.addColorStop(1,"#322c26");c.fillStyle=g}
+      else c.fillStyle=meta.c;
+      c.fill();
+      if(nd===hl){c.lineWidth=2.5;c.strokeStyle="#fffdfa";c.stroke();
+        c.beginPath();c.arc(nd.x,nd.y,r+3.5,0,7);c.strokeStyle=shadeA(meta.c,.6);c.lineWidth=1.6;c.stroke()}
+      else{c.lineWidth=1.6;c.strokeStyle="rgba(255,253,250,.85)";c.stroke()}
+      // labels
+      c.globalAlpha=dim?0.4:1;c.textAlign="center";c.textBaseline="middle";
+      if(nd.type==="user"){c.fillStyle="#fff";c.font="600 14px PingFang SC,sans-serif";c.fillText(nd.label,nd.x,nd.y)}
+      else{c.fillStyle="#4a423a";c.font="12px PingFang SC,sans-serif";
+        const lab=nd.label.length>9?nd.label.slice(0,9)+"…":nd.label;c.fillText(lab,nd.x,nd.y+r+11)}
+    }
+    c.globalAlpha=1;c.restore()}
+  pick(sx,sy){const w=this.s2w(sx,sy);let best=null,bd=1e9;
+    for(const n of this.nodes){const r=this.radius(n)+4,dx=n.x-w.x,dy=n.y-w.y,d=dx*dx+dy*dy;
+      if(d<r*r&&d<bd){bd=d;best=n}}return best}
+  bind(){const cv=this.cv;
+    this._dn=e=>{const p=this.pos(e);const n=this.pick(p.x,p.y);
+      if(n){this.drag=n;this.sel=n;this.showPanel(n);n.vx=n.vy=0}else{this.panning={x:p.x,y:p.y,cx:this.cam.x,cy:this.cam.y};this.sel=null;this.hidePanel()}
+      this.alpha=Math.max(this.alpha,0.5)};
+    this._mv=e=>{const p=this.pos(e);
+      if(this.drag){const w=this.s2w(p.x,p.y);this.drag.x=w.x;this.drag.y=w.y;this.alpha=Math.max(this.alpha,0.3)}
+      else if(this.panning){this.cam.x=this.panning.cx+(p.x-this.panning.x)/this.cam.z;this.cam.y=this.panning.cy+(p.y-this.panning.y)/this.cam.z}
+      else{const n=this.pick(p.x,p.y);this.hover=n;cv.style.cursor=n?"pointer":"grab";
+        if(n)showTip(`<b>${esc(n.label)}</b>${n.sub?"<br>"+esc(n.sub):""}${n.type==="memory"?"<br>记忆 · 当前鲜明度 "+Math.round((n.strength||0)*100)+"%":"<br>"+NODE_META[n.type].zh}`,e.clientX,e.clientY);
+        else hideTip()}};
+    this._up=()=>{this.drag=null;this.panning=null};
+    this._wh=e=>{e.preventDefault();const f=Math.exp(-e.deltaY*0.0012);
+      this.cam.z=Math.max(0.4,Math.min(2.6,this.cam.z*f))};
+    this._lv=()=>{this.hover=null;hideTip()};
+    cv.addEventListener("pointerdown",this._dn);window.addEventListener("pointermove",this._mv);
+    window.addEventListener("pointerup",this._up);cv.addEventListener("wheel",this._wh,{passive:false});
+    cv.addEventListener("pointerleave",this._lv)}
+  pos(e){const r=this.cv.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}}
+  showPanel(n){const p=document.getElementById("gpanel");if(!p)return;const meta=NODE_META[n.type]||{c:"#999",zh:n.type};
+    p.classList.add("show");
+    p.innerHTML=`<span class="gtype" style="background:${meta.c}">${meta.zh}</span>
+      <div class="gname">${esc(n.label)}</div>
+      <div class="gsub">${n.sub?esc(n.sub)+"<br>":""}${
+        n.type==="memory"?`形成于 ${n.days_ago??"?"} 天前 · 当前鲜明度 ${Math.round((n.strength||0)*100)}%`
+        :n.type==="user"?"这段关系的中心":"与 "+esc(n.label)+" 相连"}</div>
+      <div class="gsub" style="margin-top:8px;color:var(--sub)">相连 ${(this.adj[n.id]||{size:0}).size||0} 项</div>`}
+  hidePanel(){const p=document.getElementById("gpanel");if(p)p.classList.remove("show")}
+  destroy(){this.running=false;this._ro.disconnect();
+    window.removeEventListener("pointermove",this._mv);window.removeEventListener("pointerup",this._up)}
+}
+
+/* ---------------------------- profile panels ---------------------------- */
+function bar(name,pct,val,full,color){return `<div class="bar-row"><span class="nm">${esc(name)}</span>
+  <span class="track"><i style="width:${Math.max(0,Math.min(100,pct))}%;background:${full?'var(--good)':(color||'var(--accent)')}"></i></span>
+  <span class="vv">${esc(val)}</span></div>`}
+
+function viewProfile(s){
+  const body=document.getElementById("tabbody");
+  const g=s.gate;
+  const stagePath=STAGES.map((n,i)=>`<div class="sp ${i<s.stage_index?'done':i===s.stage_index?'cur':''}"
+    style="${i===s.stage_index?`--accent:${STAGE_C[s.stage]};--accent-soft:${shadeA(STAGE_C[s.stage],.25)}`:''}">
+    <div class="d" ${i<=s.stage_index?`style="background:${STAGE_C[STAGES[i]]}"`:''}></div>${STAGE_ZH[STAGES[i]]}</div>`).join("");
+  const L=s.ledger;
+  const pads=[["愉悦",s.mood.p],["唤起",s.mood.a],["底气",s.mood.d]];
+  const c=s.culture;
+  const humorZh={affiliative:"亲和玩笑",self_enhancing:"自嘲",callback:"内部梗",wordplay:"谐音梗",playful_tease:"打趣"};
+  body.innerHTML=`
+    <div class="panel">
+      <h2>养成进度 · 距下一阶段</h2>
+      <div class="stages-path">${stagePath}</div>
+      ${g.next_stage?`<div class="muted" style="margin-bottom:8px">下一站：${esc(g.next_stage)}</div>`
+        +g.items.map(it=>bar(it.name,it.pct,`${it.cur}/${it.need}`,it.pct>=100,STAGE_C[s.stage])).join("")
+        :'<div class="muted">已抵达最高阶段——剩下的路叫日常。</div>'}
+      ${g.rupture_block?'<div style="color:var(--bad);font-size:12px;margin-top:8px">⚠ 有未修复的裂痕，晋升暂停——和好之后才继续生长</div>':''}
+    </div>
+    <div class="two">
+      <div class="panel">
+        <h2>信任与亲密</h2>
+        <div class="bignum">
+          <div><b>${L.trust}</b><span>信任</span></div><div><b>${L.closeness}</b><span>亲密</span></div>
+          <div><b>${esc(s.mood.word)}</b><span>此刻心境</span></div>
+        </div>
+        ${pads.map(([n,v])=>bar(n,(v+1)*50,v.toFixed(2),false)).join("")}
+        <div class="counters" style="margin-top:10px">
+          <div>实质对话 <b>${L.substantive}</b></div><div>自我表露 <b>${L.disclosures}</b></div>
+          <div>深度表露 <b>${L.deep}</b></div><div>守约/失约 <b>${L.promises_kept}/${L.promises_broken}</b></div>
+          <div>裂痕未修 <b>${L.ruptures_open}</b></div><div>裂痕已修 <b>${L.repaired}</b></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>我们的文化 · 这段关系独有的</h2>
+        ${c.address?`<div style="font-size:13px;margin-bottom:8px">专属称呼：<b>「${esc(c.address)}」</b></div>`:""}
+        <div class="chips">${c.jokes.map(x=>`<span class="chip joke">😄 ${esc(x)}</span>`).join("")||'<span class="muted">内部梗会从一起笑过的瞬间长出来</span>'}</div>
+        <div style="margin-top:12px"><b style="font-size:12px;color:var(--sub)">相处教训（角色自我记忆）</b>
+          <ul class="plain">${c.lessons.map(x=>`<li>📝 ${esc(x)}</li>`).join("")||'<li class="muted">暂无</li>'}</ul></div>
+      </div>
+    </div>
+    <div class="two">
+      <div class="panel">
+        <h2>承诺账本 · 说到做到</h2>
+        <ul class="plain">${s.promises.length?s.promises.map(p=>`<li class="p-${p.status}">${esc(p.text)}</li>`).join("")
+          :'<li class="muted">还没有承诺——许诺要慎重，兑现是信任的第一来源。</li>'}</ul>
+      </div>
+      <div class="panel">
+        <h2>人格磨合 · 只动表达层，不动内核</h2>
+        ${bar("正式度",s.adaptation.formality*100,s.adaptation.formality,false)}
+        ${bar("能量",s.adaptation.energy*100,s.adaptation.energy,false)}
+        ${Object.entries(s.adaptation.humor).map(([k,v])=>bar(humorZh[k]||k,v*100,v,v>=0.62)).join("")}
+      </div>
+    </div>
+    <div class="panel">
+      <h2>记忆速览 · 强度随遗忘曲线衰减（完整分布见「关系时间线」）</h2>
+      <div id="memmini"></div>
+      <div class="chips" style="margin-top:10px">
+        ${s.memory.preferences.map(x=>`<span class="chip">❤ ${esc(x)}</span>`).join("")}
+        ${s.memory.aversions.map(x=>`<span class="chip avoid">✋ ${esc(x)}</span>`).join("")}
+        ${s.memory.people.map(p=>`<span class="chip person">👤 ${esc(p.name)}</span>`).join("")}
+      </div>
+      ${s.memory.sealed_count?`<div class="seal-note">🛡 封存区：${s.memory.sealed_count} 条（危机相关，永不召回、永不展示）</div>`:""}
+    </div>
+    <div class="panel">
+      <h2>每轮记忆调用 · 最近痕迹（每轮都会查询记忆，相关才注入）</h2>
+      <ul class="plain" id="traces"></ul>
+    </div>
+    <div class="panel">
+      <h2>指令试驾 · 输入一句话，看引擎此刻怎么派戏（干跑，不影响真实状态）</h2>
+      <textarea id="probe" placeholder="例如：我今天有点难过 / 你爱我吗 / 同桌抢我橡皮"></textarea>
+      <button class="go" id="probebtn">看本轮指令</button>
+      <pre id="probeout" style="display:none"></pre>
+    </div>`;
+  // mini memory list
+  document.getElementById("memmini").innerHTML=s.memory.episodes.map(m=>
+    `<div style="font-size:12.5px;margin:7px 0">${esc(m.text)}<span class="tag" style="margin-left:6px">${m.days}天前${m.recalls?` · 想起${m.recalls}次`:""}${m.vulnerable?" · 🔒秘密级":""}</span>
+     <div class="track" style="height:5px;margin-top:3px"><i style="width:${Math.round(m.strength*100)}%;background:linear-gradient(90deg,#e6c98f,#c97b4a)"></i></div></div>`).join("")
+     ||'<div class="muted">还没有共同记忆</div>';
+  document.getElementById("traces").innerHTML=(s.traces||[]).map(t=>{
+    const rec=t.recalled||[];
+    const chips=rec.map(r=>`<span class="chip ${r.kind==='profile'?'person':''}">${r.kind==='remote'?'☁':r.kind==='profile'?'👤':'💭'} ${esc(r.text)}</span>`).join(" ");
+    return `<li><span class="tag">${esc((t.t||'').slice(5,16).replace('T',' '))}</span> ${esc(t.text)}
+      ${t.itype==='safety'?'<span class="tag">🛡安全轮</span>'
+        :rec.length?`<b style="color:var(--good)">✓召回${rec.length}条</b> <span class="chips" style="display:inline-flex;vertical-align:middle">${chips}</span>`
+        :'<span class="muted">— 本轮无相关记忆</span>'}</li>`}).join("")||'<li class="muted">还没有对话记录</li>';
+  document.getElementById("probebtn").onclick=()=>preview(s.user_id);
+}
+
+async function preview(uid){
+  const text=document.getElementById("probe").value.trim();if(!text)return;
+  const out=document.getElementById("probeout");out.style.display="block";out.textContent="…";
+  const r=await j("/api/preview",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({user_id:uid,text})});
+  if(r.error){out.textContent="出错："+r.error;return}
+  const rec=r.recalled&&r.recalled.length
+    ? "🧠 本轮召回 "+r.recalled.length+" 条记忆："+r.recalled.map(m=>`「${m.text}」(${m.days}天前${m.kind==='remote'?'·远端':''})`).join("、")+(r.profile?" + 人物档案":"")+"\n"
+    : "🧠 本轮无相关记忆注入（已查询，未达阈值）\n";
+  out.textContent=rec+`识别：${r.input_type} · 角色情绪：${r.emotion} · 动作：${r.acts.join("→")}`
+    +`${r.humor?" · 含幽默":""}${r.reward?" · 奖励:"+r.reward:""}${r.safety?" · 🛡安全接管":""}\n\n${r.prompt_context}`;
+}
+
+router();
 </script>
 </body>
 </html>
