@@ -146,6 +146,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(eng.today(cid, now=now))
             if action == "report":
                 return self._send_json(eng.report(cid, now=now))
+            if action == "album":
+                return self._send_json(eng.album(cid))
             if action == "state":
                 return self._send_json(eng.raw_state(cid))
         raise KeyError(path)

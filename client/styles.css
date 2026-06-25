@@ -148,3 +148,69 @@ code{background:#0008;padding:1px 5px;border-radius:5px;font-size:12px}
   .vs{flex-direction:row;padding:6px 0;justify-content:center}
   #bump{width:78px;height:78px}
 }
+
+/* ===================== 战力面板 ===================== */
+.petemoji.hot{animation:hotpulse 1s ease-in-out infinite;filter:drop-shadow(0 0 14px #ff6b3a)}
+@keyframes hotpulse{50%{filter:drop-shadow(0 0 22px #ff8a3a)}}
+.formtag{font-size:11px;color:#ff8a5b;margin-left:4px}
+.combat{margin-top:12px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px}
+.combat-top{display:flex;justify-content:space-between;align-items:center;font-size:13px}
+.combat-top b{font-size:20px;color:var(--gold)}
+.rankpill{background:#10182e;border:1px solid var(--line);border-radius:20px;padding:3px 10px;font-size:12px;color:var(--gold)}
+.cstats{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.cstats span{background:#0c1020;border:1px solid var(--line);border-radius:8px;padding:2px 7px;font-size:11.5px}
+.breakdown{display:flex;flex-direction:column;gap:4px;margin-top:4px}
+.bd{display:grid;grid-template-columns:62px 1fr 34px;align-items:center;gap:7px;font-size:11px}
+.bd .bdl{color:var(--ink)} .bd .bdl i{color:var(--muted);font-style:normal;font-size:10px;margin-left:3px}
+.bd .bar{height:7px} .bd .bar>i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,var(--accent),var(--good));border-radius:20px}
+.bd .bdv{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+
+.ability .abn{display:flex;flex-direction:column;line-height:1.2}
+.ability .abn .realm{font-style:normal;font-size:10px;color:var(--gold)}
+.ability .abval{display:flex;flex-direction:column;align-items:flex-end;line-height:1.2}
+.ability .abval i{font-style:normal;font-size:10px;color:var(--muted)}
+
+.cardsbar{margin-top:12px;background:#10182e;border:1px dashed var(--line);border-radius:10px;padding:9px 11px;font-size:13px;cursor:pointer}
+.cardsbar b{color:var(--gold)} .cardsbar .more{float:right;color:var(--accent);font-size:12px}
+.minicard{display:inline-block;border:1px solid;border-radius:8px;padding:2px 7px;font-size:11px;margin:2px 3px 0 0;background:#0c1020}
+.fb-cards{margin-top:6px}
+.eventfeed .ev.realm{color:#b98bff} .eventfeed .ev.card{color:var(--gold)}
+
+/* ===================== 对战画面 ===================== */
+.arena{display:grid;grid-template-columns:1fr 70px 1fr;gap:8px;align-items:start;margin-bottom:10px}
+.arena.shake{animation:shake .28s}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+.fighter{position:relative;text-align:center;--elem:#5b8cff}
+.fname{font-weight:800;font-size:14px;margin-bottom:5px}
+.fname .frank{font-size:11px;color:var(--gold);font-weight:600}
+.hpbar{height:12px;background:#3a1020;border-radius:20px;overflow:hidden;border:1px solid var(--line)}
+.hpbar i{display:block;height:100%;background:linear-gradient(90deg,#46c98b,#7be0a8);border-radius:20px;transition:width .35s ease}
+.fpet{font-size:60px;line-height:1;margin:10px 0 4px;transition:transform .15s;filter:drop-shadow(0 6px 16px var(--elem))}
+.lunge-a{transform:translateX(34px) scale(1.08)} .lunge-b{transform:translateX(-34px) scale(1.08)}
+.ftags{font-size:11px;color:var(--muted)}
+.arena-mid{display:flex;flex-direction:column;align-items:center;gap:10px;padding-top:18px}
+.vsflash{font-weight:900;color:var(--bad);font-size:18px}
+#bt-skip{font-size:11px;padding:4px 8px}
+.dmg{position:absolute;left:50%;top:46%;transform:translateX(-50%);font-weight:800;font-size:15px;color:#fff;text-shadow:0 1px 3px #000;animation:floatup .85s ease-out forwards;pointer-events:none;white-space:nowrap}
+.dmg.crit{color:var(--gold);font-size:22px}
+.dmg.special{color:#c79bff;font-size:18px}
+@keyframes floatup{0%{opacity:0;transform:translate(-50%,6px)}20%{opacity:1}100%{opacity:0;transform:translate(-50%,-44px)}}
+#bt-result{margin-top:4px}
+.bt-cards{text-align:center;margin:6px 0}
+
+/* ===================== 卡册 ===================== */
+.alb-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.alb-head h3{margin:0}
+.alb-body{max-height:62vh;overflow:auto}
+.alb-sec h4{margin:10px 0 6px;font-size:13px;color:var(--muted);border-bottom:1px solid var(--line);padding-bottom:4px}
+.alb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
+.acard{--rc:#9aa3b8;background:#0c1020;border:1px solid var(--rc);border-top:3px solid var(--rc);border-radius:10px;padding:8px 7px;position:relative;min-height:80px}
+.acard .ar{font-size:10px;color:var(--rc);font-weight:700}
+.acard .an{font-size:12.5px;font-weight:700;margin:2px 0}
+.acard .af{font-size:10.5px;color:var(--muted);line-height:1.4}
+.acard.locked{border-color:#222a40;border-top-color:#222a40;opacity:.5}
+.acard .acount{position:absolute;right:6px;top:6px;font-size:11px;color:var(--gold);font-weight:700}
+.modal-card{width:520px}
+.rep-power{background:#0c1020;border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:12.5px;margin-bottom:12px;line-height:1.7}
+.rep-power b{color:var(--gold)} .rep-power i{color:var(--muted);font-style:normal;font-size:11px}
+.rep-abil td .rm{font-style:normal;color:var(--gold);font-size:10px;margin-left:4px}

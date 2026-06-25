@@ -103,15 +103,76 @@ def test_ability_rises_with_correct_answers(tmp_path):
 def test_battle_friendly_protects_weak(tmp_path):
     eng = _eng(tmp_path)
     strong = eng.create_child("强", now=DAY0)
-    weak = eng.create_child("弱", now=DAY0)
-    for d in range(5):
+    weak = eng.create_child("弱", now=DAY0)        # 全新、没练过的孩子 = 真正的弱者
+    for d in range(12):
         _answer_all(eng, strong.child_id, DAY0 + timedelta(days=d))
-    _answer_all(eng, weak.child_id, DAY0)
-    res = eng.battle(strong.child_id, weak.child_id, now=DAY0 + timedelta(days=5))
-    assert res["friendly"] is True
+    res = eng.battle(strong.child_id, weak.child_id, now=DAY0 + timedelta(days=12))
+    assert res["friendly"] is True                 # 段位悬殊 → 友谊赛
     loser = "b" if res["winner"] == "a" else "a"
-    assert res[f"{loser}_reward"]["growth"] > 0   # 输了不被罚
+    assert res[f"{loser}_reward"]["growth"] > 0    # 输了不被罚
     assert res[f"{loser}_reward"]["stars"] > 0
+
+
+def test_battle_log_is_playable(tmp_path):
+    eng = _eng(tmp_path)
+    a = eng.create_child("甲", now=DAY0)
+    b = eng.create_child("乙", now=DAY0)
+    for d in range(3):
+        _answer_all(eng, a.child_id, DAY0 + timedelta(days=d))
+        _answer_all(eng, b.child_id, DAY0 + timedelta(days=d))
+    res = eng.battle(a.child_id, b.child_id, now=DAY0 + timedelta(days=3))
+    assert res["log"] and len(res["log"]) >= 2
+    ev = res["log"][0]
+    for k in ("actor", "foe", "move", "dmg", "crit", "hp_a", "hp_b", "pct_a", "pct_b"):
+        assert k in ev
+    assert res["log"][-1]["pct_a"] < 100 or res["log"][-1]["pct_b"] < 100   # 有人掉血了
+
+
+def test_combat_breakdown_sums_to_power(tmp_path):
+    eng = _eng(tmp_path)
+    c = eng.create_child("拆", now=DAY0)
+    for d in range(4):
+        _answer_all(eng, c.child_id, DAY0 + timedelta(days=d))
+    cs = eng.home(c.child_id, now=DAY0 + timedelta(days=3))["combat"]
+    assert sum(p["value"] for p in cs["breakdown"]) == cs["battle_power"]
+
+
+def test_accuracy_tracked_and_real(tmp_path):
+    eng = _eng(tmp_path)
+    c = eng.create_child("准", now=DAY0)
+    _answer_all(eng, c.child_id, DAY0, mode="correct")
+    abil = {a["ability"]: a for a in eng.home(c.child_id, now=DAY0)["abilities"]}
+    assert abil["logic"]["accuracy"] == 100          # 真实正确率
+    assert abil["expression"]["accuracy"] is None     # 表达无对错
+
+
+def test_cards_drop_on_correct_and_realm(tmp_path):
+    eng = _eng(tmp_path)
+    c = eng.create_child("卡", now=DAY0)
+    for d in range(6):                                # 多答对 → 累积藏品卡 + 突破境界卡
+        _answer_all(eng, c.child_id, DAY0 + timedelta(days=d), mode="correct")
+    home = eng.home(c.child_id, now=DAY0 + timedelta(days=5))
+    assert home["cards"]["owned"] > 0
+    alb = eng.album(c.child_id)
+    owned = [x for x in alb["cards"] if x["owned"]]
+    assert any(x["source"] == "realm" for x in owned)     # 有境界卡
+    assert any(x["source"] == "collect" for x in owned)    # 有藏品卡
+
+
+def test_card_bonus_is_bounded(tmp_path):
+    from growth.cards import CARD_BONUS_CAP, card_power_bonus, CATALOG
+    full = {cid: 1 for cid in CATALOG}                 # 假设拿到全部卡
+    assert card_power_bonus(full) <= CARD_BONUS_CAP    # 藏卡加成有上限,不碾压平衡
+
+
+def test_realm_climbs_with_level(tmp_path):
+    eng = _eng(tmp_path)
+    c = eng.create_child("境", now=DAY0)
+    before = next(a for a in eng.home(c.child_id, now=DAY0)["abilities"] if a["ability"] == "logic")["realm"]
+    for d in range(8):
+        _answer_all(eng, c.child_id, DAY0 + timedelta(days=d), mode="correct")
+    after = next(a for a in eng.home(c.child_id, now=DAY0 + timedelta(days=7))["abilities"] if a["ability"] == "logic")["realm"]
+    assert before != after                              # 境界随真实等级晋升
 
 
 def test_persistence_roundtrip(tmp_path):

@@ -1,10 +1,10 @@
 """GrowthEngine：成长挑战系统的编排（headless，纯逻辑，时间由参数注入）。
 
-它是整套系统逻辑的唯一入口，HTTP 层（server/）只是把它的方法翻译成 JSON。
-一次作答的流水：判分 → 能力评估（诚实）→ 努力奖励 → 喂养宠物 → 徽章/装扮 →
-（满 5 关）连续天数 + 完成奖励 → 写历史/亮点/事件。碰一碰对战另起一条线，喂同一个状态。
+一次作答流水：判分 → 能力评估（含滚动正确率）→ 努力奖励 → 喂养宠物 → 徽章 →
+卡牌掉落（答对藏品卡 / 突破境界卡）→（满 5 关）连续天数 + 完成奖励 + 坚持卡。
+碰一碰 → 战斗属性换算 → 回合制对战(battle_log) → 奖励 + 对战卡。
 
-红线复述：宠物成长值/战力只来自努力；答错不扣、输了不罚；段位差过大走友谊赛。
+数值双轨：努力→体魄(HP/养成，不罚)；正确率→暴击(锋芒，有上限)。战力 = 战斗属性加权和 + 藏卡(封顶)。
 """
 
 from __future__ import annotations
@@ -13,7 +13,9 @@ import hashlib
 from datetime import date, datetime
 from typing import Optional
 
-from growth.battle import battle as run_battle, compute_power, rank_for
+from growth import cards as cardmod
+from growth.battle import combat_stats, is_friendly, simulate
+from growth.cards import realm_index, realm_progress
 from growth.challenges import ChallengeBank
 from growth.persistence import ChildStore
 from growth.report import build_report
@@ -25,13 +27,7 @@ from growth.rewards import (
     streak_badge_for,
 )
 from growth.state import ChildState
-from growth.types import (
-    ABILITY_ELEMENT,
-    ABILITY_ZH,
-    Ability,
-    KIND_ZH,
-    ScoreMode,
-)
+from growth.types import ABILITY_ZH, Ability, KIND_ZH, ScoreMode
 
 
 def _day(now: datetime) -> str:
@@ -54,7 +50,6 @@ class GrowthEngine:
         self._cache: dict[str, ChildState] = {}
 
     # ------------------------------------------------------------------ 状态
-
     def _get(self, child_id: str) -> ChildState:
         if child_id not in self._cache:
             st = self.store.load(child_id)
@@ -67,7 +62,6 @@ class GrowthEngine:
         self.store.save(child)
 
     # ------------------------------------------------------------------ 每日节拍
-
     def _roll_day(self, child: ChildState, day: str) -> None:
         if child.pet.last_day != day:
             if child.pet.last_day is not None:
@@ -115,8 +109,20 @@ class GrowthEngine:
         except ValueError:
             return False
 
-    # ------------------------------------------------------------------ 创建 / 列表
+    def _award_cards(self, child: ChildState, day: str, cids: list, events: list) -> None:
+        for cid in cids:
+            if cid in child.cards:
+                continue
+            child.own_card(cid)
+            c = cardmod.CATALOG.get(cid)
+            if not c:
+                continue
+            label = f"获得卡牌「{c.name}」· {cardmod.RARITIES[c.rarity]}"
+            events.append({"kind": "card", "label": label, "rarity": c.rarity,
+                           "card": c.public(1)})
+            child.log_event("card", label, day)
 
+    # ------------------------------------------------------------------ 创建 / 列表
     def create_child(
         self, name: str, age: int = 8, grade: int = 2,
         child_id: Optional[str] = None, now: Optional[datetime] = None,
@@ -146,30 +152,41 @@ class GrowthEngine:
                 child = self._get(fid)
             except KeyError:
                 continue
-            power = compute_power(child.abilities.mean_level(), child.streak,
-                                  child.recent_activity(), child.pet.growth_value)
-            _ri, rank = rank_for(power)
-            stage = child.pet.stage()[1]
+            cs = combat_stats(child)
             out.append({
                 "child_id": child.child_id, "name": child.name,
                 "age": child.age, "grade": child.grade,
-                "stage_name": stage, "power": power, "rank": rank,
+                "stage_name": child.pet.stage()[1],
+                "power": cs["battle_power"], "rank": cs["rank"],
                 "streak": child.streak, "stars": child.stars,
-                "badges": len(child.badges),
+                "badges": len(child.badges), "cards": len(child.cards),
                 "today_done": len(child.today_answered),
                 "today_total": len(child.today_cids),
             })
         return out
 
     # ------------------------------------------------------------------ 视图
+    def _abilities_view(self, child: ChildState) -> list:
+        from growth.types import ABILITY_ELEMENT
+        out = []
+        for a in Ability:
+            t = child.abilities.track(a)
+            rp = realm_progress(t.level)
+            acc = t.accuracy()
+            out.append({
+                "ability": a.value, "ability_zh": ABILITY_ZH[a],
+                "level": round(t.level), "practiced": t.practiced,
+                "element": ABILITY_ELEMENT[a],
+                "realm": rp["name"], "realm_next": rp["next"], "realm_pct": rp["pct"],
+                "accuracy": None if acc is None else round(acc * 100),
+            })
+        return out
 
     def _home_view(self, child: ChildState, now: datetime) -> dict:
-        power = compute_power(child.abilities.mean_level(), child.streak,
-                              child.recent_activity(), child.pet.growth_value)
-        rank_idx, rank_name = rank_for(power)
-
+        cs = combat_stats(child)
         sp = child.pet.stage_progress()
         dom = child.pet.dominant or child.abilities.strongest().value
+        from growth.types import ABILITY_ELEMENT
         pet = {
             "species": child.pet.species,
             "stage_index": sp["index"], "stage_name": sp["name"],
@@ -179,16 +196,6 @@ class GrowthEngine:
             "element": ABILITY_ELEMENT.get(Ability(dom), ""),
             "equipped": dict(child.pet.equipped), "unlocked": list(child.pet.unlocked),
         }
-
-        abilities = []
-        for a in Ability:
-            t = child.abilities.track(a)
-            abilities.append({
-                "ability": a.value, "ability_zh": ABILITY_ZH[a],
-                "level": round(t.level), "practiced": t.practiced,
-                "element": ABILITY_ELEMENT[a],
-            })
-
         challenges = []
         for cid in child.today_cids:
             c = self.bank.get(cid)
@@ -198,16 +205,16 @@ class GrowthEngine:
             pub["answered"] = cid in child.today_answered
             pub["result"] = child.today_answered.get(cid)
             challenges.append(pub)
-        done = len(child.today_answered)
-        total = len(child.today_cids)
-
+        done, total = len(child.today_answered), len(child.today_cids)
         return {
             "child_id": child.child_id, "name": child.name,
             "age": child.age, "grade": child.grade,
-            "pet": pet, "abilities": abilities,
+            "pet": pet, "abilities": self._abilities_view(child),
+            "combat": cs, "power": cs["battle_power"],
+            "rank": cs["rank"], "rank_index": cs["rank_index"],
             "stars": child.stars, "badges": list(child.badges),
             "streak": child.streak, "best_streak": child.best_streak,
-            "power": power, "rank": rank_name, "rank_index": rank_idx,
+            "cards": cardmod.collection_summary(child.cards),
             "today": {"day": child.today_day, "total": total, "done": done,
                       "all_done": done >= total and total > 0, "challenges": challenges},
             "events": list(reversed(child.events[-8:])),
@@ -225,8 +232,16 @@ class GrowthEngine:
     def today(self, child_id: str, now: Optional[datetime] = None) -> dict:
         return self.home(child_id, now)["today"]
 
-    # ------------------------------------------------------------------ 作答
+    def album(self, child_id: str) -> dict:
+        """卡册：整个目录 + 拥有数量，按稀有度降序、域分组排。"""
+        child = self._get(child_id)
+        owned = child.cards
+        cards = [c.public(owned.get(cid, 0)) for cid, c in cardmod.CATALOG.items()]
+        cards.sort(key=lambda c: (c["domain"], -c["rarity"], c["cid"]))
+        return {"summary": cardmod.collection_summary(owned), "cards": cards,
+                "rarities": cardmod.RARITIES, "rarity_color": cardmod.RARITY_COLOR}
 
+    # ------------------------------------------------------------------ 作答
     def answer(
         self, child_id: str, cid: str, answer_text: str, now: Optional[datetime] = None,
     ) -> dict:
@@ -254,11 +269,24 @@ class GrowthEngine:
 
         events: list[dict] = []
 
+        # ---- 卡牌：答对累积藏品卡 + 突破境界卡 ----
+        new_cards: list[str] = []
+        if correct:
+            before = child.card_progress.get(c.ability.value, 0)
+            after = before + 1
+            child.card_progress[c.ability.value] = after
+            new_cards += cardmod.on_correct(before, after, c.ability, set(child.cards))
+        new_cards += cardmod.on_realm_up(c.ability, old, new, set(child.cards))
+        if realm_index(new) > realm_index(old):
+            events.append({"kind": "realm",
+                           "label": f"{ABILITY_ZH[c.ability]}突破到「{realm_progress(new)['name']}」境界！"})
+        self._award_cards(child, day, new_cards, events)
+
+        # ---- 高光 / 徽章 ----
         is_highlight = False
         if is_effort and credit >= 1.0 and len((answer_text or "").strip()) >= 8:
             child.add_highlight(day, c.kind.value, c.ability.value, c.prompt, (answer_text or "").strip())
             is_highlight = True
-
         ab_badge = ability_badge_for(old, new, c.ability)
         if ab_badge and child.add_badge(ab_badge):
             self._on_badge(child, day, ab_badge, events, ability=c.ability)
@@ -276,6 +304,7 @@ class GrowthEngine:
             "correct": correct, "credit": credit, "feedback": feedback,
             "explain": c.explain, "extend": c.extend,
             "stars_earned": stars, "growth_earned": growth, "is_highlight": is_highlight,
+            "new_cards": [cardmod.CATALOG[x].public(1) for x in new_cards if x in cardmod.CATALOG],
         }
         self._save(child)
         return {"outcome": outcome, "events": events, "home": self._home_view(child, now)}
@@ -283,7 +312,7 @@ class GrowthEngine:
     def _on_badge(self, child, day, badge_name, events, ability: Optional[Ability] = None) -> None:
         events.append({"kind": "badge", "label": f"获得{badge_name}"})
         child.log_event("badge", f"获得{badge_name}", day)
-        if len(child.badges) == 1:                       # 人生第一枚徽章
+        if len(child.badges) == 1:
             u = child.pet.unlock("badge_first")
             if u:
                 events.append({"kind": "item", "label": f"解锁装扮：{u[1]}"})
@@ -320,55 +349,84 @@ class GrowthEngine:
                 if u:
                     events.append({"kind": "item", "label": f"解锁装扮：{u[1]}"})
                     child.log_event("item", f"解锁装扮：{u[1]}", day)
+        self._award_cards(child, day, cardmod.on_streak(child.streak, set(child.cards)), events)
 
         entry = self._touch_history(child, day)
         entry["completed"] = True
 
     # ------------------------------------------------------------------ 碰一碰对战
-
     def battle(self, a_id: str, b_id: str, now: Optional[datetime] = None) -> dict:
         now = now or datetime.now()
         if a_id == b_id:
             return {"error": "same_child"}
-        A = self._get(a_id)
-        B = self._get(b_id)
+        A, B = self._get(a_id), self._get(b_id)
         day = _day(now)
         for c in (A, B):
             self._roll_day(c, day)
             self._ensure_today(c, day)
 
-        pa = compute_power(A.abilities.mean_level(), A.streak, A.recent_activity(), A.pet.growth_value)
-        pb = compute_power(B.abilities.mean_level(), B.streak, B.recent_activity(), B.pet.growth_value)
+        csa, csb = combat_stats(A), combat_stats(B)
+        friendly = is_friendly(csa["battle_power"], csb["battle_power"],
+                               csa["rank_index"], csb["rank_index"])
         A.battles += 1
         B.battles += 1
-        n = A.battles + B.battles
-        a = {"id": A.child_id, "name": A.name, "power": pa,
-             "dominant": A.pet.dominant or A.abilities.strongest().value}
-        b = {"id": B.child_id, "name": B.name, "power": pb,
-             "dominant": B.pet.dominant or B.abilities.strongest().value}
-        res = run_battle(a, b, day, n)
+        if friendly:
+            A.friendly_battles += 1
+            B.friendly_battles += 1
+        seed = _seed_int(a_id, b_id, day, A.battles + B.battles)
+        Ad = {**csa, "id": A.child_id, "name": A.name}
+        Bd = {**csb, "id": B.child_id, "name": B.name}
+        sim = simulate(Ad, Bd, seed, friendly)
+        winner = sim["winner"]
 
-        A.stars += res.a_reward["stars"]
-        A.pet.nourish(res.a_reward["growth"])
-        B.stars += res.b_reward["stars"]
-        B.pet.nourish(res.b_reward["growth"])
-        a_outcome = "赢了" if res.winner == "a" else ("友谊赛" if res.friendly else "惜败")
-        b_outcome = "赢了" if res.winner == "b" else ("友谊赛" if res.friendly else "惜败")
-        A.log_event("battle", f"碰一碰 vs {B.name}：{a_outcome}", day)
-        B.log_event("battle", f"碰一碰 vs {A.name}：{b_outcome}", day)
+        a_rw, b_rw = {"stars": 1, "growth": 8}, {"stars": 1, "growth": 8}
+        if winner == "a":
+            a_rw = {"stars": 3, "growth": 14}
+        elif winner == "b":
+            b_rw = {"stars": 3, "growth": 14}
+        if friendly:
+            weak = "a" if csa["battle_power"] <= csb["battle_power"] else "b"
+            (a_rw if weak == "a" else b_rw)["stars"] += 1
+        A.stars += a_rw["stars"]
+        A.pet.nourish(a_rw["growth"])
+        B.stars += b_rw["stars"]
+        B.pet.nourish(b_rw["growth"])
+
+        ev_a, ev_b = [], []
+        self._award_cards(A, day, cardmod.on_battle(A.battles, friendly, set(A.cards)), ev_a)
+        self._award_cards(B, day, cardmod.on_battle(B.battles, friendly, set(B.cards)), ev_b)
+
+        a_res = "赢了" if winner == "a" else ("友谊赛" if friendly else "惜败")
+        b_res = "赢了" if winner == "b" else ("友谊赛" if friendly else "惜败")
+        A.log_event("battle", f"碰一碰 vs {B.name}：{a_res}", day)
+        B.log_event("battle", f"碰一碰 vs {A.name}：{b_res}", day)
         self._save(A)
         self._save(B)
 
-        out = res.to_dict()
-        out["a_home"] = self._home_view(A, now)
-        out["b_home"] = self._home_view(B, now)
-        return out
+        wname = A.name if winner == "a" else B.name
+        if friendly:
+            narration = f"{A.name} 和 {B.name} 来了一场友谊赛——切磋一下，谁都有收获！"
+        elif sim["ko"]:
+            narration = f"{wname} 一击制胜，KO！（平时的努力，全打在这一下上）"
+        else:
+            narration = f"{wname} 笑到了最后，凭的是平时一点一滴的努力。"
+
+        return {
+            "a_id": A.child_id, "b_id": B.child_id, "a_name": A.name, "b_name": B.name,
+            "a_power": csa["battle_power"], "b_power": csb["battle_power"],
+            "a_rank": csa["rank"], "b_rank": csb["rank"],
+            "a_stats": csa, "b_stats": csb,
+            "winner": winner, "friendly": friendly, "ko": sim["ko"],
+            "log": sim["events"], "maxhp_a": sim["maxhp_a"], "maxhp_b": sim["maxhp_b"],
+            "a_reward": a_rw, "b_reward": b_rw, "narration": narration,
+            "a_new_cards": [e["card"] for e in ev_a if e["kind"] == "card"],
+            "b_new_cards": [e["card"] for e in ev_b if e["kind"] == "card"],
+            "a_home": self._home_view(A, now), "b_home": self._home_view(B, now),
+        }
 
     # ------------------------------------------------------------------ 报告 / 原始态
-
     def report(self, child_id: str, now: Optional[datetime] = None) -> dict:
-        child = self._get(child_id)
-        return build_report(child)
+        return build_report(self._get(child_id))
 
     def raw_state(self, child_id: str) -> dict:
         return self._get(child_id).to_dict()
