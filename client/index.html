@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI 最强大脑挑战机 · 模拟器</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🧠 AI 最强大脑挑战机 <span class="sub">客户端模拟器</span></div>
+    <div class="tools">
+      <span id="clock" class="clock">📅 —</span>
+      <button id="advance" title="模拟时间过一天，用来演示连续天数/趋势/活力衰减">快进一天 ⏭</button>
+      <button id="reset" class="ghost">重置时钟</button>
+      <button id="seed" class="ghost">注入演示数据</button>
+    </div>
+  </header>
+
+  <p class="note">
+    这是<b>纯客户端模拟器</b>：所有判分、养成、对战逻辑都在服务端（<code>growth/</code> 引擎），
+    浏览器只发请求、画结果。左右是两台“设备”，中间“碰一碰”让两只宠物开战。
+  </p>
+
+  <main class="stage">
+    <section class="device" data-slot="A">
+      <div class="device-head">
+        <select class="child-select"></select>
+        <button class="newchild ghost">＋设备</button>
+        <button class="view-toggle ghost">家长后台</button>
+      </div>
+      <div class="device-content"></div>
+      <div class="report-panel hidden"></div>
+    </section>
+
+    <div class="vs">
+      <button id="bump">碰一碰<br><span class="zap">⚡</span><br>对战</button>
+      <div class="vs-hint">两台设备靠近<br>宠物比拼努力</div>
+    </div>
+
+    <section class="device" data-slot="B">
+      <div class="device-head">
+        <select class="child-select"></select>
+        <button class="newchild ghost">＋设备</button>
+        <button class="view-toggle ghost">家长后台</button>
+      </div>
+      <div class="device-content"></div>
+      <div class="report-panel hidden"></div>
+    </section>
+  </main>
+
+  <div id="modal" class="modal hidden"><div class="modal-card" id="modal-card"></div></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

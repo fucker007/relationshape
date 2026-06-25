@@ -1,0 +1,374 @@
+"""GrowthEngine：成长挑战系统的编排（headless，纯逻辑，时间由参数注入）。
+
+它是整套系统逻辑的唯一入口，HTTP 层（server/）只是把它的方法翻译成 JSON。
+一次作答的流水：判分 → 能力评估（诚实）→ 努力奖励 → 喂养宠物 → 徽章/装扮 →
+（满 5 关）连续天数 + 完成奖励 → 写历史/亮点/事件。碰一碰对战另起一条线，喂同一个状态。
+
+红线复述：宠物成长值/战力只来自努力；答错不扣、输了不罚；段位差过大走友谊赛。
+"""
+
+from __future__ import annotations
+
+import hashlib
+from datetime import date, datetime
+from typing import Optional
+
+from growth.battle import battle as run_battle, compute_power, rank_for
+from growth.challenges import ChallengeBank
+from growth.persistence import ChildStore
+from growth.report import build_report
+from growth.rewards import (
+    DAILY_COMPLETE_GROWTH,
+    DAILY_COMPLETE_STARS,
+    ability_badge_for,
+    reward_for_answer,
+    streak_badge_for,
+)
+from growth.state import ChildState
+from growth.types import (
+    ABILITY_ELEMENT,
+    ABILITY_ZH,
+    Ability,
+    KIND_ZH,
+    ScoreMode,
+)
+
+
+def _day(now: datetime) -> str:
+    return now.date().isoformat()
+
+
+def _seed_int(*parts) -> int:
+    return int(hashlib.md5("|".join(str(p) for p in parts).encode()).hexdigest(), 16)
+
+
+class GrowthEngine:
+    def __init__(
+        self,
+        store: Optional[ChildStore] = None,
+        bank: Optional[ChallengeBank] = None,
+        state_dir: str = "runtime/growth",
+    ) -> None:
+        self.store = store or ChildStore(state_dir)
+        self.bank = bank or ChallengeBank()
+        self._cache: dict[str, ChildState] = {}
+
+    # ------------------------------------------------------------------ 状态
+
+    def _get(self, child_id: str) -> ChildState:
+        if child_id not in self._cache:
+            st = self.store.load(child_id)
+            if st is None:
+                raise KeyError(child_id)
+            self._cache[child_id] = st
+        return self._cache[child_id]
+
+    def _save(self, child: ChildState) -> None:
+        self.store.save(child)
+
+    # ------------------------------------------------------------------ 每日节拍
+
+    def _roll_day(self, child: ChildState, day: str) -> None:
+        if child.pet.last_day != day:
+            if child.pet.last_day is not None:
+                child.pet.daily_decay()
+            child.pet.last_day = day
+        child.abilities.sample_day(day)
+
+    def _ensure_today(self, child: ChildState, day: str) -> None:
+        if child.today_day == day and child.today_cids:
+            return
+        seed = _seed_int(child.child_id, day, child.grade)
+        chosen = self.bank.pick_daily(child.ability_levels(), child.grade,
+                                      set(child.seen_cids), seed)
+        child.today_day = day
+        child.today_cids = [c.cid for c in chosen]
+        child.today_answered = {}
+        for cid in child.today_cids:
+            if cid not in child.seen_cids:
+                child.seen_cids.append(cid)
+        child.seen_cids = child.seen_cids[-300:]
+
+    def _update_dominant(self, child: ChildState) -> None:
+        child.pet.dominant = child.abilities.strongest().value
+
+    def _touch_history(self, child: ChildState, day: str) -> dict:
+        entry = next((h for h in child.history if h.get("day") == day), None)
+        if entry is None:
+            entry = {"day": day, "answered": 0, "correct": 0, "completed": False, "kinds": []}
+            child.history.append(entry)
+            child.history = child.history[-200:]
+        entry["answered"] = len(child.today_answered)
+        entry["correct"] = sum(1 for v in child.today_answered.values() if v.get("correct") is True)
+        kinds = []
+        for cid in child.today_answered:
+            c = self.bank.get(cid)
+            if c and c.ability.value not in kinds:
+                kinds.append(c.ability.value)
+        entry["kinds"] = kinds
+        return entry
+
+    @staticmethod
+    def _is_consecutive(prev_iso: str, day_iso: str) -> bool:
+        try:
+            return (date.fromisoformat(day_iso) - date.fromisoformat(prev_iso)).days == 1
+        except ValueError:
+            return False
+
+    # ------------------------------------------------------------------ 创建 / 列表
+
+    def create_child(
+        self, name: str, age: int = 8, grade: int = 2,
+        child_id: Optional[str] = None, now: Optional[datetime] = None,
+    ) -> ChildState:
+        now = now or datetime.now()
+        day = _day(now)
+        if not child_id:
+            n = len(self.store.list_ids()) + 1
+            child_id = f"kid{n}"
+            while self.store.exists(child_id):
+                n += 1
+                child_id = f"kid{n}"
+        child = ChildState(child_id=child_id, name=name or child_id,
+                           age=age, grade=grade, created_day=day)
+        self._update_dominant(child)
+        self._cache[child_id] = child
+        self._roll_day(child, day)
+        self._ensure_today(child, day)
+        child.log_event("created", f"{child.name} 的成长伙伴诞生啦", day)
+        self._save(child)
+        return child
+
+    def list_children(self, now: Optional[datetime] = None) -> list[dict]:
+        out = []
+        for fid in self.store.list_ids():
+            try:
+                child = self._get(fid)
+            except KeyError:
+                continue
+            power = compute_power(child.abilities.mean_level(), child.streak,
+                                  child.recent_activity(), child.pet.growth_value)
+            _ri, rank = rank_for(power)
+            stage = child.pet.stage()[1]
+            out.append({
+                "child_id": child.child_id, "name": child.name,
+                "age": child.age, "grade": child.grade,
+                "stage_name": stage, "power": power, "rank": rank,
+                "streak": child.streak, "stars": child.stars,
+                "badges": len(child.badges),
+                "today_done": len(child.today_answered),
+                "today_total": len(child.today_cids),
+            })
+        return out
+
+    # ------------------------------------------------------------------ 视图
+
+    def _home_view(self, child: ChildState, now: datetime) -> dict:
+        power = compute_power(child.abilities.mean_level(), child.streak,
+                              child.recent_activity(), child.pet.growth_value)
+        rank_idx, rank_name = rank_for(power)
+
+        sp = child.pet.stage_progress()
+        dom = child.pet.dominant or child.abilities.strongest().value
+        pet = {
+            "species": child.pet.species,
+            "stage_index": sp["index"], "stage_name": sp["name"],
+            "next_stage": sp["next"], "stage_pct": sp["pct"],
+            "growth_value": child.pet.growth_value, "vitality": child.pet.vitality,
+            "dominant": dom, "dominant_zh": ABILITY_ZH[Ability(dom)],
+            "element": ABILITY_ELEMENT.get(Ability(dom), ""),
+            "equipped": dict(child.pet.equipped), "unlocked": list(child.pet.unlocked),
+        }
+
+        abilities = []
+        for a in Ability:
+            t = child.abilities.track(a)
+            abilities.append({
+                "ability": a.value, "ability_zh": ABILITY_ZH[a],
+                "level": round(t.level), "practiced": t.practiced,
+                "element": ABILITY_ELEMENT[a],
+            })
+
+        challenges = []
+        for cid in child.today_cids:
+            c = self.bank.get(cid)
+            if not c:
+                continue
+            pub = c.public()
+            pub["answered"] = cid in child.today_answered
+            pub["result"] = child.today_answered.get(cid)
+            challenges.append(pub)
+        done = len(child.today_answered)
+        total = len(child.today_cids)
+
+        return {
+            "child_id": child.child_id, "name": child.name,
+            "age": child.age, "grade": child.grade,
+            "pet": pet, "abilities": abilities,
+            "stars": child.stars, "badges": list(child.badges),
+            "streak": child.streak, "best_streak": child.best_streak,
+            "power": power, "rank": rank_name, "rank_index": rank_idx,
+            "today": {"day": child.today_day, "total": total, "done": done,
+                      "all_done": done >= total and total > 0, "challenges": challenges},
+            "events": list(reversed(child.events[-8:])),
+        }
+
+    def home(self, child_id: str, now: Optional[datetime] = None) -> dict:
+        now = now or datetime.now()
+        child = self._get(child_id)
+        day = _day(now)
+        self._roll_day(child, day)
+        self._ensure_today(child, day)
+        self._save(child)
+        return self._home_view(child, now)
+
+    def today(self, child_id: str, now: Optional[datetime] = None) -> dict:
+        return self.home(child_id, now)["today"]
+
+    # ------------------------------------------------------------------ 作答
+
+    def answer(
+        self, child_id: str, cid: str, answer_text: str, now: Optional[datetime] = None,
+    ) -> dict:
+        now = now or datetime.now()
+        child = self._get(child_id)
+        day = _day(now)
+        self._roll_day(child, day)
+        self._ensure_today(child, day)
+
+        if cid not in child.today_cids:
+            return {"error": "not_today", "home": self._home_view(child, now)}
+        if cid in child.today_answered:
+            return {"already": True, "home": self._home_view(child, now)}
+
+        c = self.bank.get(cid)
+        correct, credit, feedback = self.bank.score(c, answer_text)
+        old, new = child.abilities.register(c.ability, correct, credit, c.difficulty)
+        child.abilities.sample_day(day)
+        is_effort = c.score_mode == ScoreMode.EFFORT
+        stars, growth = reward_for_answer(correct, credit, is_effort, child.streak)
+        child.stars += stars
+        child.pet.nourish(growth)
+        child.today_answered[cid] = {"correct": correct, "credit": credit}
+        self._update_dominant(child)
+
+        events: list[dict] = []
+
+        is_highlight = False
+        if is_effort and credit >= 1.0 and len((answer_text or "").strip()) >= 8:
+            child.add_highlight(day, c.kind.value, c.ability.value, c.prompt, (answer_text or "").strip())
+            is_highlight = True
+
+        ab_badge = ability_badge_for(old, new, c.ability)
+        if ab_badge and child.add_badge(ab_badge):
+            self._on_badge(child, day, ab_badge, events, ability=c.ability)
+
+        child.log_event("answer", f"完成{KIND_ZH[c.kind]}", day,
+                        detail="答对" if correct else ("已参与" if correct is None else "再接再厉"))
+        self._touch_history(child, day)
+
+        if len(child.today_answered) >= len(child.today_cids) and child.today_cids:
+            self._complete_day(child, day, events)
+
+        outcome = {
+            "cid": cid, "kind": c.kind.value, "kind_zh": KIND_ZH[c.kind],
+            "ability": c.ability.value, "ability_zh": ABILITY_ZH[c.ability],
+            "correct": correct, "credit": credit, "feedback": feedback,
+            "explain": c.explain, "extend": c.extend,
+            "stars_earned": stars, "growth_earned": growth, "is_highlight": is_highlight,
+        }
+        self._save(child)
+        return {"outcome": outcome, "events": events, "home": self._home_view(child, now)}
+
+    def _on_badge(self, child, day, badge_name, events, ability: Optional[Ability] = None) -> None:
+        events.append({"kind": "badge", "label": f"获得{badge_name}"})
+        child.log_event("badge", f"获得{badge_name}", day)
+        if len(child.badges) == 1:                       # 人生第一枚徽章
+            u = child.pet.unlock("badge_first")
+            if u:
+                events.append({"kind": "item", "label": f"解锁装扮：{u[1]}"})
+                child.log_event("item", f"解锁装扮：{u[1]}", day)
+        if ability is not None:
+            u = child.pet.unlock(f"badge_{ability.value}")
+            if u:
+                events.append({"kind": "item", "label": f"解锁装扮：{u[1]}"})
+                child.log_event("item", f"解锁装扮：{u[1]}", day)
+
+    def _complete_day(self, child, day, events) -> None:
+        prev = child.last_completed_day
+        if prev == day:
+            return
+        if prev is None:
+            child.streak = 1
+        elif self._is_consecutive(prev, day):
+            child.streak += 1
+        else:
+            child.streak = 1
+        child.last_completed_day = day
+        child.best_streak = max(child.best_streak, child.streak)
+        child.pet.nourish(DAILY_COMPLETE_GROWTH)
+        child.stars += DAILY_COMPLETE_STARS
+        events.append({"kind": "daily_complete", "label": f"今日挑战全部完成！连续 {child.streak} 天"})
+        child.log_event("daily_complete", f"完成今日全部挑战（连续 {child.streak} 天）", day)
+
+        sb = streak_badge_for(child.streak)
+        if sb and child.add_badge(sb):
+            self._on_badge(child, day, sb, events)
+        for thr, key in [(3, "streak3"), (7, "streak7"), (30, "streak30")]:
+            if child.streak >= thr:
+                u = child.pet.unlock(key)
+                if u:
+                    events.append({"kind": "item", "label": f"解锁装扮：{u[1]}"})
+                    child.log_event("item", f"解锁装扮：{u[1]}", day)
+
+        entry = self._touch_history(child, day)
+        entry["completed"] = True
+
+    # ------------------------------------------------------------------ 碰一碰对战
+
+    def battle(self, a_id: str, b_id: str, now: Optional[datetime] = None) -> dict:
+        now = now or datetime.now()
+        if a_id == b_id:
+            return {"error": "same_child"}
+        A = self._get(a_id)
+        B = self._get(b_id)
+        day = _day(now)
+        for c in (A, B):
+            self._roll_day(c, day)
+            self._ensure_today(c, day)
+
+        pa = compute_power(A.abilities.mean_level(), A.streak, A.recent_activity(), A.pet.growth_value)
+        pb = compute_power(B.abilities.mean_level(), B.streak, B.recent_activity(), B.pet.growth_value)
+        A.battles += 1
+        B.battles += 1
+        n = A.battles + B.battles
+        a = {"id": A.child_id, "name": A.name, "power": pa,
+             "dominant": A.pet.dominant or A.abilities.strongest().value}
+        b = {"id": B.child_id, "name": B.name, "power": pb,
+             "dominant": B.pet.dominant or B.abilities.strongest().value}
+        res = run_battle(a, b, day, n)
+
+        A.stars += res.a_reward["stars"]
+        A.pet.nourish(res.a_reward["growth"])
+        B.stars += res.b_reward["stars"]
+        B.pet.nourish(res.b_reward["growth"])
+        a_outcome = "赢了" if res.winner == "a" else ("友谊赛" if res.friendly else "惜败")
+        b_outcome = "赢了" if res.winner == "b" else ("友谊赛" if res.friendly else "惜败")
+        A.log_event("battle", f"碰一碰 vs {B.name}：{a_outcome}", day)
+        B.log_event("battle", f"碰一碰 vs {A.name}：{b_outcome}", day)
+        self._save(A)
+        self._save(B)
+
+        out = res.to_dict()
+        out["a_home"] = self._home_view(A, now)
+        out["b_home"] = self._home_view(B, now)
+        return out
+
+    # ------------------------------------------------------------------ 报告 / 原始态
+
+    def report(self, child_id: str, now: Optional[datetime] = None) -> dict:
+        child = self._get(child_id)
+        return build_report(child)
+
+    def raw_state(self, child_id: str) -> dict:
+        return self._get(child_id).to_dict()
