@@ -14,6 +14,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from growth import cards as cardmod
+from growth import cultivation as cult
 from growth.battle import combat_stats, is_friendly, simulate
 from growth.cards import realm_index, realm_progress
 from growth.challenges import ChallengeBank
@@ -197,19 +198,36 @@ class GrowthEngine:
             "equipped": dict(child.pet.equipped), "unlocked": list(child.pet.unlocked),
         }
         challenges = []
-        for cid in child.today_cids:
+        for idx, cid in enumerate(child.today_cids):
             c = self.bank.get(cid)
             if not c:
                 continue
             pub = c.public()
             pub["answered"] = cid in child.today_answered
             pub["result"] = child.today_answered.get(cid)
+            dom = cult.domain_for(c.kind)   # 把每道题包成宠物的"渴求"
+            pub["domain"] = dom
+            pub["domain_zh"] = cult.DOMAIN_ZH[dom]
+            pub["material"] = cult.DOMAIN_MATERIAL[dom]
+            pub["color"] = cult.DOMAIN_COLOR[dom]
+            pub["craving"] = cult.craving_for(dom, idx)
             challenges.append(pub)
         done, total = len(child.today_answered), len(child.today_cids)
+
+        cv = child.cultivation
+        cult_block = {
+            "stage": cv.stage, "egg_day": cv.egg_day, "days_to_hatch": cult.DAYS_TO_HATCH,
+            "fed_today": done, "feed_total": total or 5,
+            "materials": dict(cv.materials), "affinity": cv.norm_affinity(),
+            "dominant": cv.dominant(), "dominant_zh": cult.DOMAIN_ZH[cv.dominant()],
+            "craving": cult.DAILY_LINES[cv.egg_day % len(cult.DAILY_LINES)],
+            "species": cult.species_info(cv.species),
+        }
         return {
             "child_id": child.child_id, "name": child.name,
             "age": child.age, "grade": child.grade,
             "pet": pet, "abilities": self._abilities_view(child),
+            "cultivation": cult_block,
             "combat": cs, "power": cs["battle_power"],
             "rank": cs["rank"], "rank_index": cs["rank_index"],
             "stars": child.stars, "badges": list(child.badges),
@@ -267,6 +285,14 @@ class GrowthEngine:
         child.today_answered[cid] = {"correct": correct, "credit": credit}
         self._update_dominant(child)
 
+        # ---- 孵化层：每道题 = 喂蛋一颗灵材（仅蛋阶段）----
+        fed = None
+        if child.cultivation.stage == "egg":
+            dom = cult.domain_for(c.kind)
+            child.cultivation.feed(dom, correct, credit)
+            fed = {"domain": dom, "domain_zh": cult.DOMAIN_ZH[dom],
+                   "material": cult.DOMAIN_MATERIAL[dom], "color": cult.DOMAIN_COLOR[dom]}
+
         events: list[dict] = []
 
         # ---- 卡牌：答对累积藏品卡 + 突破境界卡 ----
@@ -305,6 +331,7 @@ class GrowthEngine:
             "explain": c.explain, "extend": c.extend,
             "stars_earned": stars, "growth_earned": growth, "is_highlight": is_highlight,
             "new_cards": [cardmod.CATALOG[x].public(1) for x in new_cards if x in cardmod.CATALOG],
+            "fed": fed,
         }
         self._save(child)
         return {"outcome": outcome, "events": events, "home": self._home_view(child, now)}
@@ -350,6 +377,14 @@ class GrowthEngine:
                     events.append({"kind": "item", "label": f"解锁装扮：{u[1]}"})
                     child.log_event("item", f"解锁装扮：{u[1]}", day)
         self._award_cards(child, day, cardmod.on_streak(child.streak, set(child.cards)), events)
+
+        # ---- 孵化推进：今日喂饱 → 蛋长一天；满 7 天破壳成专属宠 ----
+        hatched = child.cultivation.advance_day(day)
+        if hatched:
+            sp = cult.species_info(hatched)
+            events.append({"kind": "hatch", "label": f"破壳啦！你领养到「{sp['name']}」",
+                           "species": hatched, "species_info": sp})
+            child.log_event("hatch", f"破壳 · 领养到「{sp['name']}」", day)
 
         entry = self._touch_history(child, day)
         entry["completed"] = True

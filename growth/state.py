@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from growth.abilities import AbilityState
+from growth.cultivation import Incubation
 from growth.pet import PetState
 
 
@@ -23,6 +24,7 @@ class ChildState:
 
     abilities: AbilityState = field(default_factory=AbilityState.fresh)
     pet: PetState = field(default_factory=PetState)
+    cultivation: Incubation = field(default_factory=Incubation)
 
     stars: int = 0
     badges: list = field(default_factory=list)
@@ -88,6 +90,7 @@ class ChildState:
             "created_day": self.created_day,
             "abilities": self.abilities.to_dict(),
             "pet": self.pet.to_dict(),
+            "cultivation": self.cultivation.to_dict(),
             "stars": self.stars,
             "badges": self.badges,
             "streak": self.streak,
@@ -116,6 +119,7 @@ class ChildState:
             created_day=d.get("created_day"),
             abilities=AbilityState.from_dict(d.get("abilities", {})),
             pet=PetState.from_dict(d.get("pet", {})),
+            cultivation=Incubation.from_dict(d.get("cultivation", {})),
             stars=d.get("stars", 0),
             badges=d.get("badges", []),
             streak=d.get("streak", 0),

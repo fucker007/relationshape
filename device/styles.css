@@ -275,3 +275,65 @@ button{font-family:var(--font);cursor:pointer;border:none}
 .demo-btns .ghost{background:transparent;border:1px solid #2a2b40;color:#cfd2e6}
 .simlink{display:block;margin-top:14px;font-size:12px;color:#8e7bff;text-decoration:none}
 @media(max-width:760px){.demo{width:414px}}
+
+/* ===================== 蛋/养成 · 拓麻歌子式 ===================== */
+.view{padding-bottom:24px}
+.empty{text-align:center;padding:70px 24px;color:var(--muted);line-height:1.8}
+.hometop{display:flex;align-items:center;justify-content:space-between;margin:4px 2px 0}
+.petname2{font-weight:800;font-size:15px}
+.manual{background:#fff;border:1px solid var(--line);border-radius:14px;padding:6px 12px;font-size:12.5px;font-weight:700;color:var(--ink);box-shadow:var(--sh-sm)}
+.petorb.egg{background:radial-gradient(circle at 50% 36%,#fff,#ffe9c7 62%,#ffd89a 100%)}
+.petemoji[data-act="poke"]{cursor:pointer}
+.poke{animation:poke .5s}
+@keyframes poke{0%,100%{transform:rotate(0)}25%{transform:rotate(-12deg) scale(1.06)}75%{transform:rotate(12deg) scale(1.06)}}
+.cracking{animation:float 3.6s ease-in-out infinite, crack 1.6s ease-in-out infinite}
+@keyframes crack{45%{transform:translateX(-3px) rotate(-3deg)}55%{transform:translateX(3px) rotate(3deg)}}
+
+.feedslots{display:flex;align-items:center;gap:8px;justify-content:center;margin:16px 0 2px}
+.fslot{width:16px;height:16px;border-radius:50%;background:#e6e4f2;box-shadow:inset 0 2px 4px #0001;transition:.3s}
+.fslot.on{background:radial-gradient(circle at 40% 35%,#fff,var(--elem));box-shadow:0 3px 8px color-mix(in srgb,var(--elem) 50%,transparent)}
+.fslab{font-size:11px;color:var(--muted);margin-left:6px}
+.locktease{margin:14px 2px 0;text-align:center;font-size:12px;color:var(--muted);background:#f3f2fa;border:1px dashed var(--line);border-radius:14px;padding:10px}
+
+/* 喂养流程全屏 */
+.feed{position:absolute;inset:0;z-index:20;--mc:#6c5ce7;background-color:#fbfaff;
+  background-image:radial-gradient(130% 50% at 50% 0%, color-mix(in srgb,var(--mc) 22%,transparent), transparent 60%);
+  display:flex;flex-direction:column;padding:14px 18px 22px;animation:slideIn .3s}
+.feed-top{display:flex;align-items:center;gap:10px}
+.feed-close{width:34px;height:34px;border-radius:50%;background:#fff;box-shadow:var(--sh-sm);font-size:16px;color:var(--muted)}
+.feed-egg{font-size:62px;text-align:center;margin:6px 0 2px;filter:drop-shadow(0 8px 14px color-mix(in srgb,var(--mc) 40%,transparent));transition:transform .2s}
+.feed-egg.eat{animation:eat .36s}
+@keyframes eat{40%{transform:scale(1.22) translateY(-4px)}}
+.feed-craving{text-align:center;font-size:13px;color:#6a6f86;margin-bottom:6px}
+.feed-craving span{color:var(--mc);font-weight:700}
+.feed-q{background:#fff;border-radius:18px;padding:15px;box-shadow:var(--sh);margin-top:6px}
+.qlabel{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:var(--mc);margin-bottom:8px}
+.qlabel i{width:12px;height:12px;border-radius:50%;display:inline-block}
+.qprompt{font-size:17px;line-height:1.6;font-weight:600}
+.feed-answer{margin-top:auto;display:flex;flex-direction:column;gap:10px}
+.feed-answer textarea{width:100%;border:2px solid var(--line);border-radius:16px;padding:14px;font-size:15px;font-family:var(--font);resize:none;height:80px;outline:none}
+.feed-answer textarea:focus{border-color:var(--mc)}
+.feed-go{border-radius:16px;padding:15px;font-size:16px;font-weight:800;color:#fff;background:linear-gradient(135deg,color-mix(in srgb,var(--mc) 70%,#fff),var(--mc));box-shadow:0 10px 22px color-mix(in srgb,var(--mc) 40%,transparent)}
+.feed-go:disabled{opacity:.45;box-shadow:none}
+.orb{position:absolute;left:50%;bottom:150px;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 16px 4px #fff7;animation:orbfly .64s cubic-bezier(.5,.1,.6,1) forwards;z-index:5}
+@keyframes orbfly{0%{transform:translate(-50%,0) scale(1);opacity:1}100%{transform:translate(-50%,-430px) scale(.25);opacity:.2}}
+
+/* 破壳 */
+.hatch{position:absolute;inset:0;z-index:26;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;
+  background:radial-gradient(120% 60% at 50% 20%, color-mix(in srgb,var(--elem) 30%,transparent), transparent 60%),linear-gradient(180deg,#fff8ef,#fff)}
+.hatch-egg{font-size:130px;animation:hatchshake 1.7s ease-in-out}
+@keyframes hatchshake{0%,100%{transform:rotate(0)}10%,30%,50%,70%{transform:rotate(-10deg) scale(1.04)}20%,40%,60%,80%{transform:rotate(10deg) scale(1.04)}90%{transform:scale(1.2)}}
+.hatch-reveal{display:flex;flex-direction:column;align-items:center;animation:pop .5s}
+.hatch-burst{position:absolute;width:220px;height:220px;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--elem) 55%,#fff),transparent 65%);animation:burst .7s ease-out;z-index:0}
+@keyframes burst{0%{transform:scale(.2);opacity:.9}100%{transform:scale(1.6);opacity:0}}
+.hatch-pet{font-size:128px;position:relative;z-index:1;animation:pop .5s, float 3.4s ease-in-out infinite .5s;filter:drop-shadow(0 12px 18px rgba(0,0,0,.2))}
+.hatch-title{font-size:24px;font-weight:900;margin:6px 0 2px}
+.hatch-name{font-size:22px;font-weight:900;color:var(--elem)}
+.hatch-blurb{color:var(--muted);font-size:13px;margin:8px 0;max-width:280px;line-height:1.6}
+.hatch-why{background:#fff;border-radius:14px;padding:10px 14px;box-shadow:var(--sh-sm);font-size:12.5px;margin-bottom:18px}
+.hatch-why b{color:var(--elem)}
+.cele-pet.grow{animation:pop .5s, grow .8s ease-out .3s, float 3.4s ease-in-out infinite 1s}
+@keyframes grow{0%{transform:scale(1)}50%{transform:scale(1.18)}100%{transform:scale(1.06)}}
+
+.manual-note{font-size:12px;color:var(--muted);line-height:1.7;margin:8px 0 4px;background:#f7f7fc;border-radius:12px;padding:10px 12px}

@@ -203,7 +203,7 @@ class Handler(BaseHTTPRequestHandler):
                 eng.answer(child_id, ch["cid"], _demo_answer(eng, ch["cid"]), now=day_now)
 
         # 小禾：过去 5 天连续完成（今天先留空，等用户自己点）
-        for d in range(5, 0, -1):
+        for d in range(6, 0, -1):
             play(a.child_id, now - timedelta(days=d))
         # 阿哲：只在昨天玩过一次
         play(b.child_id, now - timedelta(days=1))
@@ -231,7 +231,7 @@ def main() -> None:
         def play(cid, dn):
             for ch in engine.home(cid, now=dn)["today"]["challenges"]:
                 engine.answer(cid, ch["cid"], _demo_answer(engine, ch["cid"]), now=dn)
-        for d in range(5, 0, -1):
+        for d in range(6, 0, -1):
             play(a.child_id, BASE_NOW - timedelta(days=d))
         play(b.child_id, BASE_NOW - timedelta(days=1))
         print(f"[seed] 已注入演示数据：{a.child_id}=小禾, {b.child_id}=阿哲")

@@ -186,6 +186,50 @@ def test_persistence_roundtrip(tmp_path):
     assert h["streak"] == 1
 
 
+def test_egg_frames_5_questions_as_cravings(tmp_path):
+    eng = _eng(tmp_path)
+    c = eng.create_child("蛋", now=DAY0)
+    h = eng.home(c.child_id, now=DAY0)
+    assert h["cultivation"]["stage"] == "egg" and h["cultivation"]["egg_day"] == 0
+    for ch in h["today"]["challenges"]:
+        assert ch["domain"] in ("li", "wen", "bo")
+        assert ch["material"] and ch["craving"]     # 每题都被宠物包成"渴求"
+
+
+def test_feeding_produces_material(tmp_path):
+    eng = _eng(tmp_path)
+    c = eng.create_child("蛋", now=DAY0)
+    ch = eng.home(c.child_id, now=DAY0)["today"]["challenges"][0]
+    o = eng.answer(c.child_id, ch["cid"], "随便", now=DAY0)["outcome"]
+    assert o["fed"] and o["fed"]["material"]
+    assert sum(eng.home(c.child_id, now=DAY0)["cultivation"]["materials"].values()) >= 1
+
+
+def test_hatches_after_7_days(tmp_path):
+    eng = _eng(tmp_path)
+    c = eng.create_child("蛋", now=DAY0)
+    for d in range(7):
+        _answer_all(eng, c.child_id, DAY0 + timedelta(days=d))
+    h = eng.home(c.child_id, now=DAY0 + timedelta(days=6))
+    assert h["cultivation"]["stage"] == "youth"
+    assert h["cultivation"]["species"]            # 第 7 天领养到一只专属宠
+
+
+def test_species_personalized_by_affinity(tmp_path):
+    """客观题全错、表达/创造认真 → 文科亲和最高 → 破壳成「言灵狐」。"""
+    eng = _eng(tmp_path)
+    c = eng.create_child("文", now=DAY0)
+    for d in range(7):
+        now = DAY0 + timedelta(days=d)
+        for ch in eng.home(c.child_id, now=now)["today"]["challenges"]:
+            cobj = eng.bank.get(ch["cid"])
+            ans = ("错误答案" if cobj.score_mode == ScoreMode.OBJECTIVE
+                   else "我想讲一个很长的故事，关于一只会飞的猫和它的奇妙冒险")
+            eng.answer(c.child_id, ch["cid"], ans, now=now)
+    sp = eng.home(c.child_id, now=DAY0 + timedelta(days=6))["cultivation"]["species"]
+    assert sp["name"] == "言灵狐"
+
+
 def test_report_structure_and_honest_accuracy(tmp_path):
     eng = _eng(tmp_path)
     c = eng.create_child("报告", now=DAY0)
