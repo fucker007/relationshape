@@ -337,3 +337,66 @@ button{font-family:var(--font);cursor:pointer;border:none}
 @keyframes grow{0%{transform:scale(1)}50%{transform:scale(1.18)}100%{transform:scale(1.06)}}
 
 .manual-note{font-size:12px;color:var(--muted);line-height:1.7;margin:8px 0 4px;background:#f7f7fc;border-radius:12px;padding:10px 12px}
+
+/* ===================== 设备尺寸：巴掌大小 · 黄金比例 1:1.618 ===================== */
+/* 改真机尺寸只动这一段。宽 320 × 高 518 ≈ 1:1.618；屏内元素按比例缩小，一屏装下。 */
+.device{width:320px;height:518px;border-radius:46px;padding:10px}
+.side-btn.vol{top:96px;height:62px}
+.side-btn.pwr{top:172px;height:46px}
+.screen{border-radius:38px}
+.statusbar{height:32px;flex:0 0 32px;font-size:12px;padding:0 18px}
+.statusbar .notch{width:76px;height:17px}
+.view{padding:4px 12px 12px}
+
+.greet{margin:4px 2px 2px}
+.coach{width:34px;height:34px;flex:0 0 34px;font-size:17px}
+.greet-bubble{max-width:206px;font-size:12.5px;padding:8px 11px}
+.ringwrap{width:166px;height:166px}
+.petorb{width:122px;height:122px}
+.petemoji{font-size:58px}
+.hero-name{font-size:16px;margin-top:5px}
+.hero-realm{font-size:11.5px}
+.ringpct{font-size:10px;bottom:2px}
+.feedslots{margin:10px 0 2px}
+.fslot{width:13px;height:13px}
+.pods{margin:10px 2px 0}
+.pod{padding:9px 6px}
+.pod b{font-size:18px}
+.cta{margin:12px 2px 4px;padding:13px;font-size:15px;border-radius:18px}
+.cta sub{font-size:10.5px}
+.quickchips{margin:8px 2px 0}
+.qchip{font-size:11px;padding:4px 10px}
+.bump-cta{margin:10px 2px 0;padding:11px;font-size:13px}
+.locktease{margin:10px 2px 0;padding:9px;font-size:11px}
+.hometop{margin:2px 2px 0}
+.petname2{font-size:14px}
+.manual{padding:5px 10px;font-size:12px}
+
+.feed{padding:12px 14px 16px}
+.feed-egg{font-size:50px}
+.feed-craving{font-size:12px}
+.feed-q{padding:13px}
+.qlabel{font-size:11.5px}
+.qprompt{font-size:15.5px}
+.feed-answer textarea{height:62px;font-size:14px;padding:12px}
+.feed-go{padding:12px;font-size:15px}
+.orb{bottom:118px}
+@keyframes orbfly{0%{transform:translate(-50%,0) scale(1);opacity:1}100%{transform:translate(-50%,-318px) scale(.25);opacity:.2}}
+
+.hatch{padding:18px}
+.hatch-egg{font-size:96px}
+.hatch-pet{font-size:92px}
+.hatch-title{font-size:20px}
+.hatch-name{font-size:18px}
+.hatch-blurb{font-size:12px;max-width:224px;margin:6px 0}
+.hatch-why{font-size:11.5px;padding:9px 12px;margin-bottom:14px}
+.hatch-burst{width:170px;height:170px}
+.cele-pet{font-size:90px}
+.cele-title{font-size:20px}
+.cele-sub{font-size:12px}
+.cele-btn{padding:13px;font-size:15px;max-width:250px}
+
+/* 弹层在小屏内滚动 */
+.sheet-card{padding:16px;border-radius:22px 22px 0 0}
+.bt-fighters{grid-template-columns:1fr 40px 1fr}
+.bpet{font-size:46px}
