@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>AI 最强大脑挑战机 · 设备端</title>
+  <link rel="stylesheet" href="/device/styles.css">
+</head>
+<body>
+  <div class="studio">
+    <!-- 真·设备外壳 -->
+    <div class="device" id="device">
+      <div class="side-btn vol"></div>
+      <div class="side-btn pwr"></div>
+      <div class="screen">
+        <div class="statusbar">
+          <span id="sb-time">9:06</span>
+          <div class="notch"></div>
+          <span class="sb-right"><i class="sig"></i><i class="wifi"></i><i class="bat"><b></b></i></span>
+        </div>
+        <div class="view" id="view"></div>
+        <nav class="tabbar" id="tabbar">
+          <button data-tab="home" class="tab active"><span class="ic">🏠</span><span>首页</span></button>
+          <button data-tab="challenge" class="tab"><span class="ic">⚡</span><span>挑战</span></button>
+          <button data-tab="cards" class="tab"><span class="ic">🃏</span><span>卡册</span></button>
+          <button data-tab="me" class="tab"><span class="ic">🌟</span><span>我的</span></button>
+        </nav>
+        <div class="fx" id="fx"></div>
+      </div>
+    </div>
+
+    <!-- 演示控制（在设备外，模拟"换台机器/时间流逝"，真机没有这排） -->
+    <aside class="demo">
+      <div class="demo-row"><b>演示控制</b><span class="hint">真机没有这排</span></div>
+      <label>这台设备的孩子
+        <select id="who"></select>
+      </label>
+      <div class="demo-btns">
+        <button id="adv">快进一天 ⏭</button>
+        <button id="rst" class="ghost">重置</button>
+        <button id="sed" class="ghost">注入演示</button>
+      </div>
+      <a class="simlink" href="/">← 回到双设备调试模拟器</a>
+    </aside>
+  </div>
+  <script src="/device/app.js"></script>
+</body>
+</html>

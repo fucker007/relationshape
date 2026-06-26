@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT))
 from growth import GrowthEngine  # noqa: E402
 
 CLIENT = ROOT / "client"
+DEVICE = ROOT / "device"
 BASE_NOW = datetime(2026, 6, 1, 16, 0)   # 模拟时钟起点（演示用，可 reset 回到这里）
 
 _CTYPE = {
@@ -34,8 +35,11 @@ _CTYPE = {
     ".css": "text/css; charset=utf-8",
 }
 _STATIC = {
-    "/": "index.html", "/index.html": "index.html",
-    "/app.js": "app.js", "/styles.css": "styles.css",
+    "/": CLIENT / "index.html", "/index.html": CLIENT / "index.html",
+    "/app.js": CLIENT / "app.js", "/styles.css": CLIENT / "styles.css",
+    "/device": DEVICE / "index.html", "/device/": DEVICE / "index.html",
+    "/device/index.html": DEVICE / "index.html",
+    "/device/app.js": DEVICE / "app.js", "/device/styles.css": DEVICE / "styles.css",
 }
 
 # 演示答案：客观题用正确答案，表达/创造给一句像样的童言（让首屏报告的"亮点"好看）
@@ -73,11 +77,10 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _send_file(self, name: str) -> None:
-        path = CLIENT / name
+    def _send_file(self, path) -> None:
         if not path.exists():
-            return self._send_json({"error": f"client asset missing: {name}",
-                                    "hint": "确认 client/ 目录存在"}, 404)
+            return self._send_json({"error": f"asset missing: {path.name}",
+                                    "hint": "确认 client/ 与 device/ 目录存在"}, 404)
         body = path.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", _CTYPE.get(path.suffix, "application/octet-stream"))
