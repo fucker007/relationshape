@@ -9,7 +9,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import make_asgi_app
 
@@ -94,16 +94,33 @@ async def lifespan(app: FastAPI):
     logger.info("memory service shutdown")
 
 
+def require_api_key(request: Request) -> None:
+    """接口鉴权：未配置 MEMORY_API_KEYS 时不启用（不破坏现有部署）；
+    配置后所有业务接口要求 X-API-Key 头，健康检查/文档/指标放行。"""
+    keys = {k.strip() for k in (settings.api_keys or "").split(",") if k.strip()}
+    if not keys:
+        return
+    path = request.url.path
+    if path in ("/", "/health", "/healthz", "/ready", "/openapi.json") or \
+            path.startswith(("/docs", "/redoc", "/metrics")):
+        return
+    if request.headers.get("X-API-Key", "") not in keys:
+        raise HTTPException(status_code=401, detail="invalid or missing X-API-Key")
+
+
+_cors_origins = [o.strip() for o in (settings.cors_origins or "*").split(",") if o.strip()] or ["*"]
+
 app = FastAPI(
     title="Person Memory System",
     version="1.0.0",
     description="Real-time person-centric memory system for chat AI",
     lifespan=lifespan,
+    dependencies=[Depends(require_api_key)],
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

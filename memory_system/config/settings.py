@@ -5,6 +5,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="MEMORY_", env_file=".env", extra="ignore")
 
+    # 安全（默认不破坏现有部署：不配 = 关闭鉴权 / 放行全部来源）
+    api_keys: str = ""            # 逗号分隔；非空则所有接口要求 X-API-Key 头（经 MEMORY_API_KEYS 注入）
+    cors_origins: str = "*"       # 逗号分隔的允许来源；"*" = 全部
+
     # Anthropic
     anthropic_api_key: str = ""
     extraction_model: str = "claude-sonnet-4-6"
