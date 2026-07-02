@@ -31,19 +31,8 @@ FORM_HOT_ATK, FORM_HOT_CRIT = 0.12, 0.08
 W_HP, W_ATK, W_SPD, W_CRIT, W_SPECIAL = 0.5, 7, 4, 3, 25
 MAX_TURNS = 18
 
-# 对战段位(按战力,用"星"系命名,与境界区分开)
-RANKS = [(0, "萌芽"), (200, "铜星"), (380, "银星"), (560, "金星"), (780, "钻星"), (1050, "星耀")]
-
 # 五元素相克(五边形):每元素克接下来两个
 _ELEM_ORDER = ["晶", "焰", "声", "风", "光"]   # 逻辑/创造/表达/观察/专注
-
-
-def rank_for(power: int) -> tuple[int, str]:
-    idx, name = 0, RANKS[0][1]
-    for i, (thr, nm) in enumerate(RANKS):
-        if power >= thr:
-            idx, name = i, nm
-    return idx, name
 
 
 def _elem_adv(a: str, b: str) -> int:
@@ -85,20 +74,19 @@ def combat_stats(child) -> dict:
         {"label": "藏卡", "source": "卡牌收藏", "value": card_bonus},
     ]
     power = sum(p["value"] for p in parts)
-    ridx, rname = rank_for(power)
     return {
         "hp": hp, "atk": atk, "crit": round(crit, 3), "spd": spd,
         "special": special, "creation": creation, "element": element,
         "dominant": dom.value, "dominant_zh": ABILITY_ZH[dom], "form": form,
         "card_bonus": card_bonus, "battle_power": power,
-        "rank_index": ridx, "rank": rname, "breakdown": parts,
-        "accuracy": round(acc, 2),
+        "breakdown": parts, "accuracy": round(acc, 2),
     }
 
 
-def is_friendly(a_power: int, b_power: int, a_rank: int, b_rank: int) -> bool:
+def is_friendly(a_power: int, b_power: int) -> bool:
+    """同境界内战力仍悬殊（≥2.2 倍）→ 友谊赛。层级本身已由境界匹配保证。"""
     hi, lo = max(a_power, b_power), max(1, min(a_power, b_power))
-    return abs(a_rank - b_rank) >= 2 or hi >= 2.2 * lo
+    return hi >= 2.2 * lo
 
 
 def _seed_int(*parts) -> int:

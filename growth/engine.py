@@ -1,9 +1,11 @@
 """GrowthEngine：成长挑战系统的编排（headless，纯逻辑，时间由参数注入）。
 
 每天 5 题是唯一数据入口，其余全是派生：
+  宠物每日渴求 → 决定 5 题的域配比
   作答 → 判分 → 能力评估（修为）→ 智慧星 → 喂养宠物（灵材/亲和）→ 卡牌 → 高光
-  满 5 关 → 连续天数 + 境界推进（孵化→破壳）
-  碰一碰 → 战斗属性 → 回合制 battle_log → 双方有所得（输了不罚）
+  满 5 关 → 连续天数 + 境界推进（孵化→破壳→突破检查）
+  灵材 →（炼丹）→ 丹药；读书过测 → 法器；时间×丹药×法器×全面修为 → 境界突破
+  碰一碰 → 同境界匹配 → 回合制 battle_log → 双方有所得（输了不罚）
 
 宠物唯一真源是 state.cultivation；活力/云游是派生态。HTTP 层只是把这些方法翻成 JSON。
 """
@@ -14,6 +16,7 @@ import hashlib
 from datetime import date, datetime
 from typing import Optional
 
+from growth import books as bookmod
 from growth import cards as cardmod
 from growth import cultivation as cult
 from growth.battle import combat_stats, is_friendly, simulate
@@ -62,9 +65,12 @@ class GrowthEngine:
         child.abilities.sample_day(day)
         if child.today_day == day and child.today_cids:
             return
+        # 宠物的嘴决定今天的域配比：主渴求域 +1 题（修行缺什么，就多练什么）
+        child.today_craving = child.cultivation.daily_craving(day)
         seed = _seed_int(child.child_id, day, child.grade)
         chosen = self.bank.pick_daily(child.ability_levels(), child.grade,
-                                      set(child.seen_cids), seed)
+                                      set(child.seen_cids), seed,
+                                      quota=cult.quota_for(child.today_craving))
         child.today_day = day
         child.today_cids = [c.cid for c in chosen]
         child.today_answered = {}
@@ -136,7 +142,7 @@ class GrowthEngine:
                 "age": child.age, "grade": child.grade,
                 "realm": child.cultivation.realm,
                 "realm_zh": cult.REALM_ZH[child.cultivation.realm],
-                "power": cs["battle_power"], "rank": cs["rank"],
+                "power": cs["battle_power"],
                 "streak": child.streak, "stars": child.stars,
                 "cards": len(child.cards),
                 "today_done": len(child.today_answered),
@@ -145,10 +151,31 @@ class GrowthEngine:
         return out
 
     # ------------------------------------------------------------------ 视图
+    def _gate_view(self, child: ChildState) -> Optional[dict]:
+        """下一境界的突破清单（时间/丹药/法器/全面修为），孩子和家长都看得懂。"""
+        cv = child.cultivation
+        gate = cult.gate_for_next(cv.realm)
+        if gate is None:
+            return None
+        pill = cult.PILLS[gate.pill]
+        min_lv = min(round(child.abilities.track(a).level) for a in Ability)
+        items = [
+            {"label": "修行天数", "cur": cv.realm_day, "need": gate.days},
+            {"label": f"丹药「{pill['name']}」", "cur": cv.pills.get(gate.pill, 0), "need": 1},
+            {"label": "法器", "cur": len(cv.artifacts), "need": gate.artifacts},
+            {"label": "全面修为(最低能力)", "cur": min_lv, "need": gate.min_ability},
+        ]
+        for it in items:
+            it["ok"] = it["cur"] >= it["need"]
+        nxt = cult.next_realm(cv.realm)
+        return {"next": nxt, "next_zh": cult.REALM_ZH[nxt], "pill": gate.pill,
+                "items": items, "ready": all(it["ok"] for it in items)}
+
     def _pet_view(self, child: ChildState, day: str) -> dict:
         cv = child.cultivation
         sp = cult.species_info(cv.species)
         st = cv.status(day)
+        craving = child.today_craving or cv.daily_craving(day)
         return {
             "realm": cv.realm, "realm_zh": cult.REALM_ZH[cv.realm],
             "realm_day": cv.realm_day, "days_to_hatch": cult.DAYS_TO_HATCH,
@@ -157,6 +184,13 @@ class GrowthEngine:
             "vitality": st["vitality"], "mode": st["mode"], "status_line": st["line"],
             "materials": dict(cv.materials), "affinity": cv.norm_affinity(),
             "dominant": cv.dominant(), "dominant_zh": cult.DOMAIN_ZH[cv.dominant()],
+            "craving": {"domain": craving, "domain_zh": cult.DOMAIN_ZH[craving],
+                        "material": cult.DOMAIN_MATERIAL[craving],
+                        "line": cult.DAILY_CRAVING_LINES[craving]},
+            "pills": {pid: {"n": n, **cult.PILLS[pid]} for pid, n in cv.pills.items() if n > 0},
+            "artifacts": [{"bid": bid, **bookmod.get_book(bid)["artifact"]}
+                          for bid in cv.artifacts if bookmod.get_book(bid)],
+            "gate": self._gate_view(child),
         }
 
     def _abilities_view(self, child: ChildState) -> list:
@@ -196,7 +230,6 @@ class GrowthEngine:
             "pet": self._pet_view(child, day),
             "abilities": self._abilities_view(child),
             "combat": cs, "power": cs["battle_power"],
-            "rank": cs["rank"], "rank_index": cs["rank_index"],
             "stars": child.stars, "streak": child.streak, "best_streak": child.best_streak,
             "cards": cardmod.collection_summary(child.cards),
             "today": {"day": child.today_day, "total": total, "done": done,
@@ -309,15 +342,95 @@ class GrowthEngine:
         child.log_event("daily_complete", f"完成今日全部挑战（连续 {child.streak} 天）", day)
         self._award_cards(child, day, cardmod.on_streak(child.streak, set(child.cards)), events)
 
-        # ---- 境界推进：喂饱一天长一天；蛋满 7 天破壳成专属宠 ----
+        # ---- 境界推进：喂饱一天长一天；蛋满 7 天破壳；更高境界查突破门 ----
         hatched = child.cultivation.advance_day(day)
         if hatched:
             sp = cult.species_info(hatched)
             events.append({"kind": "hatch", "label": f"破壳啦！你领养到「{sp['name']}」",
                            "species": hatched, "species_info": sp})
             child.log_event("hatch", f"破壳 · 领养到「{sp['name']}」", day)
+            self._award_cards(child, day, cardmod.on_pet_realm("youth", set(child.cards)), events)
+        else:
+            self._check_breakthrough(child, day, events)
 
         self._touch_history(child, day)["completed"] = True
+
+    def _check_breakthrough(self, child: ChildState, day: str, events: list) -> None:
+        """时间 × 丹药 × 法器 × 全面修为 都齐了 → 服丹突破，进入下一境界。"""
+        gate_view = self._gate_view(child)
+        if gate_view is None or not gate_view["ready"]:
+            return
+        cv = child.cultivation
+        cv.pills[gate_view["pill"]] -= 1          # 服下丹药
+        cv.realm = gate_view["next"]
+        cv.realm_day = 0
+        zh = gate_view["next_zh"]
+        events.append({"kind": "breakthrough", "label": f"境界突破！进入「{zh}」",
+                       "realm": cv.realm, "realm_zh": zh})
+        child.log_event("breakthrough", f"境界突破 → {zh}", day)
+        self._award_cards(child, day, cardmod.on_pet_realm(cv.realm, set(child.cards)), events)
+
+    # ------------------------------------------------------------------ 炼丹 / 书阁 / 召回
+    def alchemy(self, child_id: str, pill_id: str, now: Optional[datetime] = None) -> dict:
+        """配方凑齐一键成丹（确定性，无失败率）；随后立刻查一次突破。"""
+        now = now or datetime.now()
+        child = self._get(child_id)
+        day = _day(now)
+        self._ensure_today(child, day)
+        if pill_id not in cult.PILLS:
+            return {"error": "unknown_pill"}
+        why = child.cultivation.craft_check(pill_id)
+        if why is not None:
+            detail = {"wrong_pill": "现在的境界不需要这颗丹",
+                      "already_have": "已有一颗在丹炉里，突破时会自动服下",
+                      "not_enough_materials": "灵材还不够，继续修炼吧"}[why]
+            return {"error": why, "detail": detail}
+        child.cultivation.craft(pill_id)
+        pill = cult.PILLS[pill_id]
+        events = [{"kind": "pill", "label": f"炼成「{pill['name']}」！", "pill": pill_id}]
+        child.log_event("pill", f"炼成「{pill['name']}」", day)
+        self._check_breakthrough(child, day, events)
+        self._save(child)
+        return {"ok": True, "pill": {"id": pill_id, **pill},
+                "events": events, "home": self._home_view(child, day)}
+
+    def books(self, child_id: str) -> dict:
+        child = self._get(child_id)
+        return {"books": bookmod.list_books(child.cultivation.artifacts)}
+
+    def read_book(self, child_id: str, bid: str, answers: list,
+                  now: Optional[datetime] = None) -> dict:
+        """读完某篇 → 回来说说（2 题小测）→ 全对解锁法器；法器计入突破条件。"""
+        now = now or datetime.now()
+        child = self._get(child_id)
+        day = _day(now)
+        self._ensure_today(child, day)
+        results = bookmod.grade(bid, answers or [])
+        if results is None:
+            return {"error": "unknown_book"}
+        book = bookmod.get_book(bid)
+        passed = all(results)
+        events: list[dict] = []
+        if passed and bid not in child.cultivation.artifacts:
+            child.cultivation.artifacts.append(bid)
+            events.append({"kind": "artifact", "label": f"获得法器「{book['artifact']['name']}」！",
+                           "artifact": book["artifact"]})
+            child.log_event("artifact", f"读《{book['title']}》· 获得法器「{book['artifact']['name']}」", day)
+            self._check_breakthrough(child, day, events)
+        self._save(child)
+        return {"passed": passed, "results": results,
+                "artifact": book["artifact"] if passed else None,
+                "events": events, "home": self._home_view(child, day)}
+
+    def recall(self, child_id: str, now: Optional[datetime] = None) -> dict:
+        """家长召回：云游的宠物当天回到住所，等孩子来一起修炼（期待向，无指责）。"""
+        now = now or datetime.now()
+        child = self._get(child_id)
+        day = _day(now)
+        child.cultivation.recall_day = day
+        child.log_event("recall", "被召回 · 在住所等小主人", day)
+        self._save(child)
+        return {"ok": True, "home": self._home_view(child, day)}
 
     # ------------------------------------------------------------------ 碰一碰对战
     def battle(self, a_id: str, b_id: str, now: Optional[datetime] = None) -> dict:
@@ -325,15 +438,18 @@ class GrowthEngine:
         if a_id == b_id:
             return {"error": "same_child"}
         A, B = self._get(a_id), self._get(b_id)
-        if any(c.cultivation.realm == "egg" for c in (A, B)):
+        ra, rb = A.cultivation.realm, B.cultivation.realm
+        if "egg" in (ra, rb):
             return {"error": "egg_cannot_battle", "detail": "蛋还没破壳，不能出战"}
+        if ra != rb:   # 战力并入境界：同境界才切磋，天然分层不碾压
+            return {"error": "realm_mismatch",
+                    "detail": f"境界不同（{cult.REALM_ZH[ra]} vs {cult.REALM_ZH[rb]}），同境界才能切磋"}
         day = _day(now)
         for c in (A, B):
             self._ensure_today(c, day)
 
         csa, csb = combat_stats(A), combat_stats(B)
-        friendly = is_friendly(csa["battle_power"], csb["battle_power"],
-                               csa["rank_index"], csb["rank_index"])
+        friendly = is_friendly(csa["battle_power"], csb["battle_power"])
         A.battles += 1
         B.battles += 1
         if friendly:
@@ -384,7 +500,7 @@ class GrowthEngine:
             "a_id": A.child_id, "b_id": B.child_id, "a_name": A.name, "b_name": B.name,
             "a_emoji": emoji(A), "b_emoji": emoji(B),
             "a_power": csa["battle_power"], "b_power": csb["battle_power"],
-            "a_rank": csa["rank"], "b_rank": csb["rank"],
+            "realm_zh": cult.REALM_ZH[ra],
             "a_stats": csa, "b_stats": csb,
             "winner": winner, "friendly": friendly, "ko": sim["ko"],
             "log": sim["events"], "maxhp_a": sim["maxhp_a"], "maxhp_b": sim["maxhp_b"],

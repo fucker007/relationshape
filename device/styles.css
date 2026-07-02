@@ -251,3 +251,24 @@ button{font-family:var(--font);cursor:pointer;border:none}
 .demo-btns .ghost{background:transparent;border:1px solid #2a2b40;color:#cfd2e6}
 .simlink{display:block;margin-top:14px;font-size:12px;color:#8e7bff;text-decoration:none}
 @media(max-width:640px){.demo{width:320px}}
+
+/* ---------- 修仙 P2：丹房 / 书阁 / 突破清单 ---------- */
+.actrow{display:flex;gap:8px;margin:10px 2px 0}
+.actrow button{flex:1;border-radius:14px;padding:10px 4px;font-weight:800;font-size:12.5px;color:var(--ink);
+  background:#fff;border:1.5px solid var(--line);box-shadow:var(--sh-sm)}
+.locktease{margin:10px 2px 0;text-align:center;font-size:11px;color:var(--muted);
+  background:#f3f2fa;border:1px dashed var(--line);border-radius:14px;padding:9px}
+.glist{display:flex;flex-direction:column;gap:6px}
+.gitem{font-size:12.5px;background:#f7f7fc;border-radius:10px;padding:8px 11px;color:var(--muted)}
+.gitem.ok{color:#0d7a55;background:#ecf9f2}
+.gitem b{float:right;font-variant-numeric:tabular-nums}
+.bookrow{display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;
+  background:#fff;border:1px solid var(--line);border-radius:14px;padding:11px 12px;margin-bottom:8px;box-shadow:var(--sh-sm)}
+.bookrow .bk-t{font-size:13px;font-weight:700}
+.bookrow .bk-a{font-size:10.5px;color:var(--muted)}
+.bk-author{font-size:11px;color:var(--muted);margin:-6px 0 8px}
+.bk-text{background:#fbf8f2;border-radius:14px;padding:12px;font-size:13px;line-height:1.9;margin-bottom:6px}
+.bk-q{margin-bottom:8px}
+.bk-qt{font-size:12.5px;font-weight:700;margin-bottom:5px}
+.bk-in{width:100%;border:2px solid var(--line);border-radius:12px;padding:10px;font-size:13px;font-family:var(--font);outline:none}
+.bk-in:focus{border-color:var(--brand)}

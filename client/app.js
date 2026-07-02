@@ -66,7 +66,7 @@ function combatPanel(h) {
   return `
   <div class="combat">
     <div class="combat-top"><span>⚔️ 战力 <b>${c.battle_power}</b></span>
-      <span class="rankpill">🏆 ${esc(h.rank)}</span></div>
+      <span class="rankpill">🏆 ${esc(h.pet.realm_zh)}</span></div>
     <div class="cstats">
       <span title="努力(坚持/活跃)">❤️HP ${c.hp}</span>
       <span title="逻辑">🗡ATK ${c.atk}</span>
@@ -180,7 +180,7 @@ function reportView(rep) {
   const imp = rep.biggest_improvement ? `${esc(rep.biggest_improvement.ability_zh)} +${rep.biggest_improvement.delta}` : "—";
   return `<h3>👪 ${esc(rep.name)} · 本周成长报告</h3>
     <table class="rep-abil"><tr><th>能力·修为</th><th>周初</th><th>现在</th><th>变化</th><th>练习</th><th>正确率</th></tr>${rows}</table>
-    <div class="rep-power">⚔️ 战力 <b>${rep.combat.power}</b>（${esc(rep.combat.rank)}）＝ ${bd}</div>
+    <div class="rep-power">⚔️ 战力 <b>${rep.combat.power}</b>（${esc(rep.combat.realm_zh)}）＝ ${bd}</div>
     <div class="rep-week">
       <div class="stat"><b>${w.completed_days}</b>完成天数</div><div class="stat"><b>${w.challenges_done}</b>挑战数</div>
       <div class="stat"><b>${w.streak}</b>连续</div><div class="stat"><b>${rep.cards.owned}</b>卡牌</div><div class="stat"><b>${w.stars}</b>星</div></div>
@@ -230,9 +230,9 @@ async function playBattle(res) {
   const card = $("#modal-card");
   card.innerHTML = `
     <div class="arena">
-      ${fighterHTML("a", res.a_name, res.a_rank, res.a_emoji, res.a_stats)}
+      ${fighterHTML("a", res.a_name, res.realm_zh, res.a_emoji, res.a_stats)}
       <div class="arena-mid"><div class="vsflash">VS</div><button id="bt-skip" class="ghost">跳过 »</button></div>
-      ${fighterHTML("b", res.b_name, res.b_rank, res.b_emoji, res.b_stats)}
+      ${fighterHTML("b", res.b_name, res.realm_zh, res.b_emoji, res.b_stats)}
     </div>
     ${res.friendly ? '<div class="bt-friendly">🤝 实力悬殊 → 友谊赛：抹平差距、点到为止，输了不掉成长</div>' : ""}
     <div id="bt-result" class="hidden"></div>`;
@@ -289,7 +289,7 @@ async function refreshSelectors(keep = true) {
   for (const slot of ["A", "B"]) {
     const sel = panel(slot).querySelector(".child-select");
     sel.innerHTML = kids.length
-      ? kids.map((k) => `<option value="${k.child_id}">${esc(k.name)}（${esc(k.rank)}·战力${k.power}·🔥${k.streak}·🃏${k.cards}）</option>`).join("")
+      ? kids.map((k) => `<option value="${k.child_id}">${esc(k.name)}（${esc(k.realm_zh)}·战力${k.power}·🔥${k.streak}·🃏${k.cards}）</option>`).join("")
       : '<option value="">（暂无设备）</option>';
     sel.value = want[slot]; slots[slot].cid = want[slot] || null;
   }

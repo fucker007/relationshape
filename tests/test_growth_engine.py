@@ -48,14 +48,20 @@ def _item(eng, prompt_sub):
     return next(c for c in eng.bank.items if prompt_sub in c.prompt)
 
 
-def test_today_shape_and_no_answer_leak(tmp_path):
+def test_today_is_craving_driven_and_no_answer_leak(tmp_path):
+    """每日仍是 5 题；宠物的主渴求域比基础配额多一题；当日绝不重题；答案永不下发。"""
+    from growth.cultivation import BASE_QUOTA
     eng = _eng(tmp_path)
     c = eng.create_child("小测", now=DAY0)
-    t = eng.home(c.child_id, now=DAY0)["today"]
+    h = eng.home(c.child_id, now=DAY0)
+    t = h["today"]
     assert t["total"] == 5 and len(t["challenges"]) == 5
-    assert [ch["kind"] for ch in t["challenges"]] == \
-        ["warmup", "logic", "expression", "observation", "creation"]
-    # 服务端绝不把答案/讲解下发给客户端
+    assert len({ch["cid"] for ch in t["challenges"]}) == 5
+    craving = h["pet"]["craving"]["domain"]
+    counts = {}
+    for ch in t["challenges"]:
+        counts[ch["domain"]] = counts.get(ch["domain"], 0) + 1
+    assert counts[craving] == BASE_QUOTA[craving] + 1
     for ch in t["challenges"]:
         assert "answer" not in ch and "explain" not in ch and "accept" not in ch
 
@@ -63,9 +69,9 @@ def test_today_shape_and_no_answer_leak(tmp_path):
 def test_objective_wrong_returns_explain_and_still_feeds_effort(tmp_path):
     eng = _eng(tmp_path)
     c = eng.create_child("小测", now=DAY0)
-    logic = [ch for ch in eng.home(c.child_id, now=DAY0)["today"]["challenges"]
-             if ch["kind"] == "logic"][0]
-    o = eng.answer(c.child_id, logic["cid"], "瞎写一个", now=DAY0)["outcome"]
+    obj = [ch for ch in eng.home(c.child_id, now=DAY0)["today"]["challenges"]
+           if ch["score_mode"] == "objective"][0]
+    o = eng.answer(c.child_id, obj["cid"], "瞎写一个", now=DAY0)["outcome"]
     assert o["correct"] is False
     assert o["explain"] and o["extend"]          # 答错给讲解引申
     assert o["fed"] and o["fed"]["material"]      # 答错仍喂到宠物
@@ -173,13 +179,90 @@ def test_hot_form_latches_for_the_day(tmp_path):
     """上午打出火热，下午失误不回落（当日锁存）。"""
     eng = _eng(tmp_path)
     c = eng.create_child("热", now=DAY0)
-    by_kind = {ch["kind"]: ch for ch in eng.home(c.child_id, now=DAY0)["today"]["challenges"]}
-    for kind in ("warmup", "logic"):
-        item = eng.bank.get(by_kind[kind]["cid"])
-        eng.answer(c.child_id, item.cid, item.answer, now=DAY0)
+    objs = [ch for ch in eng.home(c.child_id, now=DAY0)["today"]["challenges"]
+            if ch["score_mode"] == "objective"]
+    assert len(objs) >= 2
+    for ch in objs[:2]:
+        eng.answer(c.child_id, ch["cid"], eng.bank.get(ch["cid"]).answer, now=DAY0)
     assert eng.home(c.child_id, now=DAY0)["combat"]["form"] == "hot"
-    eng.answer(c.child_id, by_kind["observation"]["cid"], "完全不对的胡乱回答", now=DAY0)
+    later = objs[2]["cid"] if len(objs) >= 3 else None
+    if later:                                              # 下午答错一题，火热不回落
+        eng.answer(c.child_id, later, "完全不对的胡乱回答", now=DAY0)
     assert eng.home(c.child_id, now=DAY0)["combat"]["form"] == "hot"
+
+
+def test_book_quiz_unlocks_artifact(tmp_path):
+    """读书过测 → 法器；答错不解锁（判分与题库同一口径）。"""
+    from growth.books import BOOKS
+    eng = _eng(tmp_path)
+    c = eng.create_child("书", now=DAY0)
+    b = BOOKS[0]
+    bad = eng.read_book(c.child_id, b["bid"], ["完全不对", "也不对"], now=DAY0)
+    assert bad["passed"] is False and bad["artifact"] is None
+    good = eng.read_book(c.child_id, b["bid"], [q["answer"] for q in b["quiz"]], now=DAY0)
+    assert good["passed"] and good["artifact"]["name"]
+    assert b["bid"] in eng._get(c.child_id).cultivation.artifacts
+
+
+def test_alchemy_and_breakthrough_to_zhuji(tmp_path):
+    """时间×丹药×法器×全面修为 → 突破筑基，并掉「筑基之证」境界卡。"""
+    from growth.books import BOOKS
+    eng = _eng(tmp_path)
+    c = eng.create_child("修仙", now=DAY0)
+    _hatch(eng, c.child_id, DAY0)
+    b = BOOKS[0]
+    eng.read_book(c.child_id, b["bid"], [q["answer"] for q in b["quiz"]],
+                  now=DAY0 + timedelta(days=7))
+    realm = "youth"
+    for d in range(7, 32):
+        _answer_all(eng, c.child_id, DAY0 + timedelta(days=d))
+        if eng._get(c.child_id).cultivation.realm == "youth":
+            eng.alchemy(c.child_id, "zhuji_dan", now=DAY0 + timedelta(days=d))  # 不够会温柔拒绝
+        realm = eng._get(c.child_id).cultivation.realm
+        if realm == "zhuji":
+            break
+    assert realm == "zhuji"
+    assert "realm-zhuji" in eng._get(c.child_id).cards          # 境界卡
+    assert eng._get(c.child_id).cultivation.pills.get("zhuji_dan", 0) == 0   # 丹被服下
+    # 经济收紧：突破后再炼旧丹会被温柔拒绝（灵材留给下一境界）
+    assert eng.alchemy(c.child_id, "zhuji_dan", now=DAY0 + timedelta(days=31))["error"] == "wrong_pill"
+
+
+def test_alchemy_needs_materials(tmp_path):
+    eng = _eng(tmp_path)
+    c = eng.create_child("穷", now=DAY0)
+    assert eng.alchemy(c.child_id, "zhuji_dan", now=DAY0)["error"] == "wrong_pill"   # 蛋期无丹门
+    _hatch(eng, c.child_id, DAY0)
+    eng._get(c.child_id).cultivation.materials = {"li": 0, "wen": 0, "bo": 0}
+    r = eng.alchemy(c.child_id, "zhuji_dan", now=DAY0 + timedelta(days=7))
+    assert r["error"] == "not_enough_materials"
+
+
+def test_battle_requires_same_realm(tmp_path):
+    eng = _eng(tmp_path)
+    a = eng.create_child("甲", now=DAY0)
+    b = eng.create_child("乙", now=DAY0)
+    _hatch(eng, a.child_id, DAY0)
+    _hatch(eng, b.child_id, DAY0)
+    eng._get(b.child_id).cultivation.realm = "zhuji"            # 直接置境界，检门禁
+    res = eng.battle(a.child_id, b.child_id, now=DAY0 + timedelta(days=7))
+    assert res["error"] == "realm_mismatch"
+
+
+def test_friendly_is_ratio_based():
+    from growth.battle import is_friendly
+    assert is_friendly(500, 200) is True
+    assert is_friendly(300, 260) is False
+
+
+def test_parent_recall_brings_pet_back(tmp_path):
+    eng = _eng(tmp_path)
+    c = eng.create_child("念", now=DAY0)
+    _hatch(eng, c.child_id, DAY0)
+    later = DAY0 + timedelta(days=12)                            # 5 天没来 → 云游
+    assert eng.home(c.child_id, now=later)["pet"]["mode"] == "away"
+    r = eng.recall(c.child_id, now=later)
+    assert r["home"]["pet"]["mode"] == "recalled"
 
 
 def test_report_week_ago_uses_calendar(tmp_path):
@@ -210,10 +293,12 @@ def test_combat_breakdown_sums_to_power(tmp_path):
 def test_accuracy_tracked_and_real(tmp_path):
     eng = _eng(tmp_path)
     c = eng.create_child("准", now=DAY0)
-    _answer_all(eng, c.child_id, DAY0, mode="correct")
-    abil = {a["ability"]: a for a in eng.home(c.child_id, now=DAY0)["abilities"]}
-    assert abil["logic"]["accuracy"] == 100          # 真实正确率
-    assert abil["expression"]["accuracy"] is None     # 表达无对错
+    for d in range(3):
+        _answer_all(eng, c.child_id, DAY0 + timedelta(days=d), mode="correct")
+    abil = {a["ability"]: a for a in eng.home(c.child_id, now=DAY0 + timedelta(days=2))["abilities"]}
+    tracked = [a for a in abil.values() if a["accuracy"] is not None]
+    assert tracked and all(a["accuracy"] == 100 for a in tracked)   # 客观题真实正确率
+    assert abil["expression"]["accuracy"] is None                    # 表达无对错
 
 
 def test_cards_drop_on_correct_and_mastery(tmp_path):
@@ -318,10 +403,11 @@ def test_vitality_and_away_are_derived(tmp_path):
 def test_report_structure_and_honest_accuracy(tmp_path):
     eng = _eng(tmp_path)
     c = eng.create_child("报告", now=DAY0)
-    _answer_all(eng, c.child_id, DAY0)
-    rep = eng.report(c.child_id, now=DAY0)
+    for d in range(3):
+        _answer_all(eng, c.child_id, DAY0 + timedelta(days=d))
+    rep = eng.report(c.child_id, now=DAY0 + timedelta(days=2))
     assert len(rep["abilities"]) == 5
-    assert "this_week" in rep and "honest_note" in rep
+    assert "this_week" in rep and "honest_note" in rep and "combat" in rep
     by = {a["ability"]: a for a in rep["abilities"]}
-    assert by["logic"]["accuracy"] is not None     # 客观能力：有正确率
-    assert by["expression"]["accuracy"] is None     # 主观能力：如实标 None（练习量）
+    assert any(a["accuracy"] is not None for a in by.values())   # 客观能力：有真实正确率
+    assert by["expression"]["accuracy"] is None                   # 主观能力：如实标 None（练习量）

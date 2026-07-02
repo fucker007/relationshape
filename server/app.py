@@ -171,6 +171,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(eng.report(cid, now=now))
             if action == "album":
                 return self._send_json(eng.album(cid))
+            if action == "books":
+                return self._send_json(eng.books(cid))
             if action == "state":
                 return self._send_json(eng.raw_state(cid))
         raise KeyError(path)
@@ -203,6 +205,13 @@ class Handler(BaseHTTPRequestHandler):
             if action == "answer":
                 b = self._body()
                 return self._send_json(eng.answer(cid, b["cid"], b.get("answer", ""), now=now))
+            if action == "alchemy":
+                return self._send_json(eng.alchemy(cid, self._body().get("pill", ""), now=now))
+            if action == "book":
+                b = self._body()
+                return self._send_json(eng.read_book(cid, b.get("bid", ""), b.get("answers", []), now=now))
+            if action == "recall":
+                return self._send_json(eng.recall(cid, now=now))
         raise KeyError(path)
 
 def main() -> None:

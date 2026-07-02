@@ -75,7 +75,13 @@ function renderEgg() {
       <span class="qchip">🃏 <b>${h.cards.owned}</b> 张</span>
       <span class="qchip">📅 ${esc((state.clock && state.clock.day) || "")}</span>
     </div>`;
-  typewriter($("#statusline"), full ? "今天吃得好饱…谢谢你，明天见~" : p.status_line);
+  typewriter($("#statusline"), petLine(p, full, "今天吃得好饱…谢谢你，明天见~"));
+}
+
+/* 宠物开口说什么：云游/沉睡优先，其次今日渴求（把 5 题的配比说成它的愿望） */
+function petLine(p, full, fullLine) {
+  if (p.mode !== "normal") return p.status_line;
+  return full ? fullLine : p.craving.line;
 }
 
 /* ---------- 幼年·首页（破壳后） ---------- */
@@ -102,8 +108,13 @@ function renderYouth() {
     ${full
       ? `<button class="cta done">今日修炼完成 🌙<sub>它正在消化今天的灵材</sub></button>`
       : `<button class="cta" data-act="feed">今天的修炼<sub>陪它练 ${t.total - t.done} 关，喂它今天的灵材</sub></button>`}
-    <button class="bump-cta" data-act="bump">⚡ 碰一碰 · 和好友切磋</button>`;
-  typewriter($("#statusline"), full ? "今天练得真好，我能感觉到力量在长~" : p.status_line);
+    <div class="actrow">
+      <button data-act="alchemy">⚗️ 丹房</button>
+      <button data-act="books">📜 书阁</button>
+      <button data-act="bump">⚡ 碰一碰</button>
+    </div>
+    ${p.gate ? `<div class="locktease">🔒 ${esc(p.gate.next_zh)} · 突破条件 ${p.gate.items.filter((i) => i.ok).length}/${p.gate.items.length}（详见手册）</div>` : ""}`;
+  typewriter($("#statusline"), petLine(p, full, "今天练得真好，我能感觉到力量在长~"));
 }
 
 /* ---------- 喂养流程（5 道题 = 5 口渴求）---------- */
@@ -111,7 +122,7 @@ let flow = null;
 function startFeeding() {
   const t = state.home.today, steps = t.challenges.filter((c) => !c.answered);
   if (!steps.length) return;
-  flow = { steps, i: 0, hatch: null, cards: [] };
+  flow = { steps, i: 0, hatch: null, breakthrough: null, cards: [] };
   const node = document.createElement("div"); node.className = "feed"; node.id = "feed"; screen().appendChild(node);
   renderFeedStep();
 }
@@ -144,7 +155,11 @@ async function submitFeed() {
   if (r.error) { alert(r.detail || r.error); return; }
   state.home = r.home; setElem(r.home.pet);
   (r.outcome.new_cards || []).forEach((x) => flow.cards.push(x));
-  (r.events || []).forEach((e) => { if (e.kind === "hatch") flow.hatch = e; });
+  (r.events || []).forEach((e) => {
+    if (e.kind === "hatch") flow.hatch = e;
+    if (e.kind === "breakthrough") flow.breakthrough = e;
+    if (e.kind === "card" && e.card) flow.cards.push(e.card);
+  });
   await flyMaterial(r.outcome);
   showFeedback(r.outcome);
 }
@@ -179,7 +194,9 @@ function showFeedback(o) {
 function closeFeed() { const n = $("#feed"); if (n) n.remove(); flow = null; loadHome().then(renderHome); }
 function finishFeeding() {
   const n = $("#feed"); if (n) n.remove();
-  if (flow.hatch) hatchCinematic(flow.hatch); else dailyCele();
+  if (flow.hatch) hatchCinematic(flow.hatch);
+  else if (flow.breakthrough) breakthroughCinematic(flow.breakthrough);
+  else dailyCele();
 }
 
 /* ---------- 每日喂饱小结 ---------- */
@@ -219,6 +236,120 @@ function hatchCinematic(ev) {
   }, 1700);
 }
 
+/* ---------- 境界突破！---------- */
+function breakthroughCinematic(ev) {
+  const p = state.home.pet, sp = p.species;
+  const node = document.createElement("div"); node.className = "hatch"; screen().appendChild(node);
+  node.innerHTML = `<div class="hatch-reveal">
+    <div class="hatch-burst"></div>
+    <div class="hatch-pet">${sp ? sp.emoji : "🐲"}</div>
+    <div class="hatch-title">⚡ 境界突破！</div>
+    <div class="hatch-name">「${esc(ev.realm_zh)}」</div>
+    <div class="hatch-blurb">服下丹药，法器加持，千日之功在此一刻。</div>
+    ${flow && flow.cards.length ? `<div class="newcards">${flow.cards.map(miniCard).join("")}</div>` : ""}
+    <button class="cele-btn">继续修行 →</button>`;
+  confetti(160);
+  $(".cele-btn").onclick = () => { node.remove(); loadHome().then(renderHome); };
+}
+
+/* ---------- 丹房：灵材 → 丹药（配方齐了一键成丹）---------- */
+async function showAlchemy() {
+  const p = state.home.pet, gate = p.gate;
+  const sheet = document.createElement("div"); sheet.className = "sheet";
+  if (!gate) {
+    sheet.innerHTML = `<div class="sheet-card"><h3>⚗️ 丹房</h3>
+      <div class="manual-note">当前境界不需要炼丹，安心修炼吧。</div>
+      <button class="sheet-close">收起</button></div>`;
+  } else {
+    const recipe = { li: "晶尘", wen: "韵露", bo: "灵芝" };
+    const pillItem = gate.items.find((i) => i.label.includes("丹药"));
+    const havePill = pillItem && pillItem.ok;
+    const bars = Object.entries(recipe).map(([d, name]) => `
+      <div class="abrow"><div class="an">${name}<i>库存</i></div>
+        <div class="track"><i style="width:${Math.min(100, (p.materials[d] || 0) * 8)}%;background:${DOMAIN_COLOR[d]}"></i></div>
+        <div class="av">${p.materials[d] || 0} 颗</div></div>`).join("");
+    sheet.innerHTML = `<div class="sheet-card"><h3>⚗️ 丹房</h3>
+      <div class="manual-note">要突破到「${esc(gate.next_zh)}」，需先炼成一颗丹药——三系灵材都要攒够，偏科可炼不出丹。</div>
+      <div class="abils">${bars}</div>
+      ${havePill ? `<div class="manual-note">✅ 丹已在炉中，突破条件齐时会自动服下。</div>`
+                 : `<button class="cele-btn" id="craft" style="max-width:none">🔥 开炉炼丹</button>`}
+      <button class="sheet-close">收起</button></div>`;
+  }
+  screen().appendChild(sheet);
+  $(".sheet-close").onclick = () => sheet.remove();
+  sheet.onclick = (e) => { if (e.target === sheet) sheet.remove(); };
+  const craft = $("#craft");
+  if (craft) craft.onclick = async () => {
+    const r = await post(`/api/child/${state.cid}/alchemy`, { pill: gate.pill });
+    if (r.error) { alert(r.detail || r.error); return; }
+    state.home = r.home; setElem(r.home.pet);
+    sheet.remove();
+    const bt = (r.events || []).find((e) => e.kind === "breakthrough");
+    if (bt) { flow = { cards: [] }; breakthroughCinematic(bt); }
+    else { confetti(90); renderHome(); }
+  };
+}
+
+/* ---------- 书阁：读书 → 回来说说 → 法器 ---------- */
+async function showBooks() {
+  const d = await get(`/api/child/${state.cid}/books`);
+  const sheet = document.createElement("div"); sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-card"><h3>📜 书阁</h3>
+    <div class="manual-note">读完一篇，回来告诉它两件事——说对了，就解锁一件法器（突破要用）。</div>
+    ${d.books.map((b) => `
+      <button class="bookrow" data-bid="${b.bid}">
+        <span class="bk-t">${b.owned ? "✅" : "📖"} ${esc(b.title)}</span>
+        <span class="bk-a">${b.owned ? `已得「${esc(b.artifact.name)}」` : `法器「${esc(b.artifact.name)}」`}</span>
+      </button>`).join("")}
+    <button class="sheet-close">收起</button></div>`;
+  screen().appendChild(sheet);
+  $(".sheet-close").onclick = () => sheet.remove();
+  sheet.onclick = (e) => { if (e.target === sheet) sheet.remove(); };
+  sheet.querySelectorAll(".bookrow").forEach((btn) => btn.onclick = () => {
+    const book = d.books.find((b) => b.bid === btn.dataset.bid);
+    sheet.remove(); readBook(book);
+  });
+}
+function readBook(book) {
+  const sheet = document.createElement("div"); sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-card">
+    <h3>📖 ${esc(book.title)}</h3>
+    <div class="bk-author">${esc(book.author)}</div>
+    <div class="bk-text">${esc(book.text)}</div>
+    <div class="section-t">读完啦？回来说说——</div>
+    ${book.quiz.map((q, i) => `
+      <div class="bk-q"><div class="bk-qt">${i + 1}. ${esc(q.q)}</div>
+        <input class="bk-in" data-i="${i}" placeholder="写下你的回答…"></div>`).join("")}
+    <button class="cele-btn" id="bk-go" style="max-width:none;margin-top:12px">告诉它 ▸</button>
+    <button class="sheet-close">收起</button></div>`;
+  screen().appendChild(sheet);
+  $(".sheet-close").onclick = () => sheet.remove();
+  $("#bk-go").onclick = async () => {
+    const answers = [...sheet.querySelectorAll(".bk-in")].map((i) => i.value.trim());
+    const r = await post(`/api/child/${state.cid}/book`, { bid: book.bid, answers });
+    if (r.error) { alert(r.detail || r.error); return; }
+    state.home = r.home;
+    if (r.passed) {
+      sheet.remove(); confetti(120);
+      const bt = (r.events || []).find((e) => e.kind === "breakthrough");
+      if (bt) { flow = { cards: [] }; breakthroughCinematic(bt); return; }
+      const done = document.createElement("div"); done.className = "sheet";
+      done.innerHTML = `<div class="sheet-card" style="text-align:center">
+        <div class="fb-emoji">🎁</div><h3>获得法器「${esc(r.artifact.name)}」</h3>
+        <div class="manual-note">${esc(r.artifact.flavor)}</div>
+        <button class="sheet-close">收下</button></div>`;
+      screen().appendChild(done);
+      done.querySelector(".sheet-close").onclick = () => { done.remove(); renderHome(); };
+    } else {
+      r.results.forEach((ok, i) => {
+        const input = sheet.querySelector(`.bk-in[data-i="${i}"]`);
+        input.style.borderColor = ok ? "#22c08b" : "#ff6b81";
+      });
+      alert("有的还没说对——再读一遍那一段，你一定能找到！");
+    }
+  };
+}
+
 /* ---------- 手册（灵材/修为/卡册/家长报告，一个抽屉收纳所有深度）---------- */
 const DOMAIN_COLOR = { li: "#4aa3ff", wen: "#b07bff", bo: "#46c98b" };
 async function showManual() {
@@ -236,6 +367,9 @@ async function showManual() {
     <div class="abils">${bar("li", "理科")}${bar("wen", "文科")}${bar("bo", "博物")}</div>
     <div class="manual-note">它最亲近 <b>${esc(p.dominant_zh)}</b> 灵材${grown ? "——破壳时正是由它决定了物种。" : "（破壳成哪种宠，就看这个）。"}</div>
     ${grown ? `<div class="section-t">🌟 修为</div><div class="abils">${h.abilities.map((a) => `<div class="abrow"><div class="an">${esc(a.ability_zh)}<i>${esc(a.mastery)}</i></div><div class="track"><i style="width:${a.level}%"></i></div><div class="av">lv${a.level}</div></div>`).join("")}</div>` : ""}
+    ${p.gate ? `<div class="section-t">⚡ 突破「${esc(p.gate.next_zh)}」清单</div>
+      <div class="glist">${p.gate.items.map((i) => `<div class="gitem ${i.ok ? "ok" : ""}">${i.ok ? "✅" : "⬜"} ${esc(i.label)}　<b>${i.cur}/${i.need}</b></div>`).join("")}</div>` : ""}
+    ${(p.artifacts || []).length ? `<div class="section-t">🎁 法器</div><div class="cardwrap">${p.artifacts.map((a) => `<span class="minicard" style="--rc:#8e7bff"><span class="mc-r">法器</span><span class="mc-n">${esc(a.name)}</span></span>`).join("")}</div>` : ""}
     <div class="section-t">🃏 卡册 · 里程碑（${alb.summary.owned}/${alb.summary.total} · 藏卡战力 +${alb.summary.bonus}）</div>
     <div class="cardwrap">${ownedCards.length ? ownedCards.map(miniCard).join("") : '<span class="manual-note">还没有卡牌——答对、坚持、突破修为都会掉卡。</span>'}</div>
     <button class="parent-btn" data-open="parent">👪 家长报告</button>
@@ -279,7 +413,7 @@ function fighterHTML(side, name, rank, emoji, stats) {
 async function playBattle(res) {
   const node = document.createElement("div"); node.className = "bt"; node.id = "bt"; screen().appendChild(node);
   node.innerHTML = `<button class="bt-skip">跳过 »</button>
-    <div class="bt-fighters">${fighterHTML("a", res.a_name, res.a_rank, res.a_emoji, res.a_stats)}<div class="bvs">VS</div>${fighterHTML("b", res.b_name, res.b_rank, res.b_emoji, res.b_stats)}</div>
+    <div class="bt-fighters">${fighterHTML("a", res.a_name, res.realm_zh, res.a_emoji, res.a_stats)}<div class="bvs">VS</div>${fighterHTML("b", res.b_name, res.realm_zh, res.b_emoji, res.b_stats)}</div>
     ${res.friendly ? '<div class="bt-friendly">🤝 实力悬殊 → 友谊赛：抹平差距、点到为止，输了不掉成长</div>' : ""}
     <div id="bt-result"></div>`;
   let skip = false; $(".bt-skip").onclick = () => skip = true;
@@ -313,6 +447,8 @@ function wire() {
     if (act === "feed") startFeeding();
     else if (act === "manual") showManual();
     else if (act === "bump") startBattle();
+    else if (act === "alchemy") showAlchemy();
+    else if (act === "books") showBooks();
     else if (act === "poke") { a.classList.remove("poke"); void a.offsetWidth; a.classList.add("poke"); }
   });
   $("#who").addEventListener("change", async (e) => { state.cid = e.target.value || null; await loadHome(); renderHome(); });

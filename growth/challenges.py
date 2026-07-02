@@ -71,14 +71,15 @@ def effort_credit(answer: str) -> tuple[float, str]:
 
 
 def _target_difficulty(level: float, grade: int) -> int:
-    """按能力等级定目标难度，并用年级封顶（一年级不丢三年级的题）。"""
+    """按能力等级定目标难度；年级封顶但**能力放行**——一年级的天才（≥70）可越一级。"""
     if level < 35:
         d = 1
     elif level < 70:
         d = 2
     else:
         d = 3
-    return max(1, min(d, grade))
+    cap = min(3, grade + (1 if level >= 70 else 0))
+    return max(1, min(d, cap))
 
 
 def _seed_int(*parts) -> int:
@@ -103,30 +104,39 @@ class ChallengeBank:
         grade: int,
         seen_ids: set,
         seed: int,
+        quota: Optional[dict] = None,
     ) -> list[Challenge]:
-        """每日 5 关，每关一种能力，难度按该能力等级自适应；尽量不重复历史题。"""
+        """每日 5 关。quota（域→题数）由宠物的每日渴求给出——渴求域多一题；
+        难度按对应能力等级自适应；尽量不重复历史题，当日绝不重题。"""
+        from growth.cultivation import BASE_QUOTA, DOMAIN_KINDS
+
+        quota = quota or BASE_QUOTA
+        kinds: list[ChallengeKind] = []
+        for dom in ("li", "wen", "bo"):
+            pool = DOMAIN_KINDS[dom]
+            rot = _seed_int(seed, dom) % len(pool)   # 按日轮转起点：配额少时也不"饿死"某个题型
+            kinds += [pool[(i + rot) % len(pool)] for i in range(quota.get(dom, 0))]
+        kinds.sort(key=DAILY_ORDER.index)
+
         chosen: list[Challenge] = []
-        for kind in DAILY_ORDER:
-            ab = KIND_ABILITY[kind]
-            level = float(ability_levels.get(ab.value, 12.0))
+        for slot, kind in enumerate(kinds):
+            level = float(ability_levels.get(KIND_ABILITY[kind].value, 12.0))
             target = _target_difficulty(level, grade)
             pool = self.by_kind(kind)
-
-            # 优先：目标难度 & 没做过；逐步放宽，最后允许重复（小题库兜底）
+            today = {c.cid for c in chosen}
+            # 优先：目标难度 & 没做过；逐步放宽；最后允许重复历史但绝不重复今天
             tiers = [
-                [c for c in pool if c.difficulty == target and c.cid not in seen_ids],
-                [c for c in pool if abs(c.difficulty - target) <= 1 and c.cid not in seen_ids],
-                [c for c in pool if c.cid not in seen_ids],
+                [c for c in pool if c.difficulty == target and c.cid not in seen_ids and c.cid not in today],
+                [c for c in pool if abs(c.difficulty - target) <= 1 and c.cid not in seen_ids and c.cid not in today],
+                [c for c in pool if c.cid not in seen_ids and c.cid not in today],
+                [c for c in pool if c.cid not in today],
                 pool,
             ]
-            picked = None
             for tier in tiers:
                 if tier:
-                    idx = _seed_int(seed, kind.value, len(tier)) % len(tier)
-                    picked = sorted(tier, key=lambda c: c.cid)[idx]
+                    idx = _seed_int(seed, kind.value, slot, len(tier)) % len(tier)
+                    chosen.append(sorted(tier, key=lambda c: c.cid)[idx])
                     break
-            if picked is not None:
-                chosen.append(picked)
         return chosen
 
     def score(self, challenge: Challenge, answer: str) -> tuple[Optional[bool], float, str]:

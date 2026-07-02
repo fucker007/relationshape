@@ -15,11 +15,49 @@ from typing import Optional
 
 from growth.types import ChallengeKind
 
-# ---- 境界（宠物本体） ----
-REALMS = ["egg", "youth"]                      # P2 起向上生长：筑基/结丹/元婴
-REALM_ZH = {"egg": "蛋", "youth": "幼年期"}
+# ---- 境界（宠物本体）：蛋 7 天破壳，往上每一阶都要 时间×丹药×法器×全面修为 ----
+REALMS = ["egg", "youth", "zhuji", "jiedan", "yuanying"]
+REALM_ZH = {"egg": "蛋", "youth": "幼年期", "zhuji": "筑基期",
+            "jiedan": "结丹期", "yuanying": "元婴期"}
 DAYS_TO_HATCH = 7
 AWAY_AFTER_DAYS = 3                            # 3 天没来，它就出门云游/沉睡了
+
+# ---- 丹药：灵材按跨域配方炼成，是突破的钥匙之一 ----
+PILLS = {
+    "zhuji_dan": {"name": "筑基丹", "recipe": {"li": 6, "wen": 6, "bo": 6},
+                  "flavor": "三系灵材各六，方能筑起道基。"},
+    "jieyuan_dan": {"name": "结元丹", "recipe": {"li": 10, "wen": 10, "bo": 10},
+                    "flavor": "灵材凝练成元，一颗抵千日之功。"},
+    "huaying_dan": {"name": "化婴丹", "recipe": {"li": 15, "wen": 15, "bo": 15},
+                    "flavor": "脱胎换骨之丹，非大毅力者不可得。"},
+}
+
+
+@dataclass(frozen=True)
+class RealmGate:
+    """突破到某境界的门槛：时间 × 丹药 × 法器 × 全面修为（五能力最低值）。"""
+
+    days: int          # 当前境界内的"喂饱日"数
+    pill: str          # 需要炼成并服下的丹药
+    artifacts: int     # 需要的法器数（读书过测解锁）
+    min_ability: int   # 五能力最低等级（逼均衡，不许偏科硬冲）
+
+
+REALM_GATES = {
+    "zhuji": RealmGate(days=10, pill="zhuji_dan", artifacts=1, min_ability=25),
+    "jiedan": RealmGate(days=25, pill="jieyuan_dan", artifacts=2, min_ability=45),
+    "yuanying": RealmGate(days=50, pill="huaying_dan", artifacts=3, min_ability=60),
+}
+
+
+def next_realm(realm: str) -> Optional[str]:
+    i = REALMS.index(realm)
+    return REALMS[i + 1] if i + 1 < len(REALMS) else None
+
+
+def gate_for_next(realm: str) -> Optional[RealmGate]:
+    nxt = next_realm(realm)
+    return REALM_GATES.get(nxt) if nxt and nxt != "youth" else None
 
 # ---- 知识域与灵材 ----
 DOMAINS = ["li", "wen", "bo"]
@@ -48,6 +86,26 @@ SPECIES = {
             "blurb": "它由语言与故事孕育，最爱听你把世界讲给它听。"},
     "bo": {"name": "观澜枭", "emoji": "🦉", "elem": "风",
            "blurb": "它生于好奇与观察，对万物都睁着好奇的眼睛。"},
+}
+
+# ---- 每日渴求：宠物的嘴 = 当日 5 题的域配比 ----
+BASE_QUOTA = {"li": 2, "wen": 1, "bo": 2}
+
+
+def quota_for(craving: Optional[str]) -> dict:
+    """主渴求域 +1 题，从配额最多的其他域让出 1 题——总数恒为 5。"""
+    q = dict(BASE_QUOTA)
+    if craving in q:
+        donor = max((d for d in q if d != craving), key=lambda d: q[d])
+        q[donor] -= 1
+        q[craving] += 1
+    return q
+
+
+DAILY_CRAVING_LINES = {
+    "li": "今天丹炉里最缺「晶尘」…多陪我做几道理科题好吗？",
+    "wen": "今天特别渴望「韵露」…多给我讲讲你的想法吧！",
+    "bo": "今天想要「灵芝」…带我多看看这个世界！",
 }
 
 # ---- 拟人话 ----
@@ -107,6 +165,8 @@ class Cultivation:
     aff_n: dict = field(default_factory=lambda: {d: 0 for d in DOMAINS})
     species: Optional[str] = None
     hatched_day: Optional[str] = None
+    pills: dict = field(default_factory=dict)       # pill_id -> 数量（炼成待服）
+    artifacts: list = field(default_factory=list)   # 已解锁的法器（book id）
 
     # ---- 喂养（每答一题；任何境界都在积累） ----
     def feed(self, domain: str, correct: Optional[bool], credit: float) -> None:
@@ -152,6 +212,43 @@ class Cultivation:
         avg = self.avg_affinity()
         return max(DOMAINS, key=lambda d: (avg[d], self.aff_n.get(d, 0)))
 
+    # ---- 每日渴求：修行需求说话，其次补短板 ----
+    def daily_craving(self, day: str) -> str:
+        """今天最想要的域。优先：下一颗突破丹还缺的灵材；否则亲和最弱的域（补短板）。
+        平局按日轮换——不许任何一个域被永久冷落（否则对应能力会停滞）。"""
+        gate = gate_for_next(self.realm)
+        if gate is not None and self.pills.get(gate.pill, 0) == 0:
+            recipe = PILLS[gate.pill]["recipe"]
+            deficit = {d: recipe.get(d, 0) - self.materials.get(d, 0) for d in DOMAINS}
+            if max(deficit.values()) > 0:
+                return max(DOMAINS, key=lambda d: deficit[d])
+        avg = self.avg_affinity()
+        weakest = min(avg.values())
+        cands = [d for d in DOMAINS if avg[d] <= weakest + 1e-9]
+        return cands[date.fromisoformat(day).toordinal() % len(cands)]
+
+    # ---- 炼丹：一炉丹只为眼前这道门（不许囤积，灵材留给下一境界） ----
+    def craft_check(self, pill_id: str) -> Optional[str]:
+        """能否开炉。返回 None=可以，否则给出温柔的拒绝理由（错误码）。"""
+        gate = gate_for_next(self.realm)
+        if gate is None or gate.pill != pill_id:
+            return "wrong_pill"
+        if self.pills.get(pill_id, 0) >= 1:
+            return "already_have"
+        recipe = PILLS[pill_id]["recipe"]
+        if any(self.materials.get(d, 0) < n for d, n in recipe.items()):
+            return "not_enough_materials"
+        return None
+
+    def craft(self, pill_id: str) -> bool:
+        """配方凑齐 → 消耗灵材，炼成一颗丹。确定性，无失败率（不做赌博）。"""
+        if self.craft_check(pill_id) is not None:
+            return False
+        for d, n in PILLS[pill_id]["recipe"].items():
+            self.materials[d] -= n
+        self.pills[pill_id] = self.pills.get(pill_id, 0) + 1
+        return True
+
     # ---- 境界推进：每个喂饱日 +1；蛋满 7 天破壳 ----
     def advance_day(self, day: str) -> Optional[str]:
         """返回破壳的物种域（若本次破壳），否则 None。只在"今日 5 题喂饱"时调。"""
@@ -174,6 +271,7 @@ class Cultivation:
             "recall_day": self.recall_day,
             "materials": self.materials, "aff_sum": self.aff_sum, "aff_n": self.aff_n,
             "species": self.species, "hatched_day": self.hatched_day,
+            "pills": self.pills, "artifacts": self.artifacts,
         }
 
     @classmethod
@@ -187,4 +285,5 @@ class Cultivation:
             aff_sum=d.get("aff_sum", {x: 0.0 for x in DOMAINS}),
             aff_n=d.get("aff_n", {x: 0 for x in DOMAINS}),
             species=d.get("species"), hatched_day=d.get("hatched_day"),
+            pills=d.get("pills", {}), artifacts=d.get("artifacts", []),
         )

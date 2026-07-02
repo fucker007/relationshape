@@ -39,6 +39,7 @@ class ChildState:
     today_day: Optional[str] = None
     today_cids: list = field(default_factory=list)
     today_answered: dict = field(default_factory=dict)   # cid -> {"correct":bool|None, "credit":float}
+    today_craving: Optional[str] = None                  # 宠物今日主渴求的域（决定 5 题配比）
 
     seen_cids: list = field(default_factory=list)         # 出过的题（抽题去重）
     history: list = field(default_factory=list)           # [{day,answered,correct,completed,kinds}]
@@ -91,6 +92,7 @@ class ChildState:
             "today_day": self.today_day,
             "today_cids": self.today_cids,
             "today_answered": self.today_answered,
+            "today_craving": self.today_craving,
             "seen_cids": self.seen_cids,
             "history": self.history,
             "highlights": self.highlights,
@@ -119,6 +121,7 @@ class ChildState:
             today_day=d.get("today_day"),
             today_cids=d.get("today_cids", []),
             today_answered=d.get("today_answered", {}),
+            today_craving=d.get("today_craving"),
             seen_cids=d.get("seen_cids", []),
             history=d.get("history", []),
             highlights=d.get("highlights", []),

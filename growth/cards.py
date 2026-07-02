@@ -104,6 +104,14 @@ _STREAK_CARDS = {
     60: ("双月之约", 4, "六十日如一日,心志如铁。"), 100: ("百日之约", 5, "百日筑基,水滴石穿。"),
 }
 
+# 境界卡：宠物本体突破的里程碑（破壳/筑基/结丹/元婴）
+_PET_REALM_CARDS = {
+    "youth": ("破壳之证", 1, "从一颗蛋，到一个伙伴。"),
+    "zhuji": ("筑基之证", 2, "根基已成，大道始于足下。"),
+    "jiedan": ("结丹之证", 3, "千日之功，凝于一丹。"),
+    "yuanying": ("元婴之证", 4, "脱胎换骨，别有天地。"),
+}
+
 
 def _build_catalog() -> dict:
     cat: dict[str, Card] = {}
@@ -123,6 +131,9 @@ def _build_catalog() -> dict:
     for thr, (nm, rar, fl) in _STREAK_CARDS.items():
         cid = f"streak-{thr}"
         cat[cid] = Card(cid, nm, "坚持", rar, fl, "streak")
+    # 境界卡
+    for realm, (nm, rar, fl) in _PET_REALM_CARDS.items():
+        cat[f"realm-{realm}"] = Card(f"realm-{realm}", nm, "境界", rar, fl, "realm")
     # 对战卡
     cat["battle-first"] = Card("battle-first", "初战之证", "对战", 0, "第一次出战,虽败犹荣。", "battle")
     cat["battle-friendly"] = Card("battle-friendly", "友谊之证", "对战", 1, "切磋以友会,胜负皆收获。", "battle")
@@ -157,6 +168,11 @@ def on_mastery_up(ability: Ability, old_level: float, new_level: float, owned: s
 
 def on_streak(streak: int, owned: set) -> list[str]:
     cid = f"streak-{streak}"
+    return [cid] if cid in CATALOG and cid not in owned else []
+
+
+def on_pet_realm(realm: str, owned: set) -> list[str]:
+    cid = f"realm-{realm}"
     return [cid] if cid in CATALOG and cid not in owned else []
 
 

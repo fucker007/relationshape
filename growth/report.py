@@ -12,6 +12,7 @@ from datetime import date, timedelta
 
 from growth.battle import combat_stats
 from growth.cards import collection_summary, mastery_progress
+from growth.cultivation import REALM_ZH
 from growth.types import ABILITY_ZH, Ability
 
 
@@ -53,7 +54,7 @@ def build_report(child, day: str) -> dict:
     return {
         "child_id": child.child_id, "name": child.name,
         "abilities": abilities,
-        "combat": {"power": cs["battle_power"], "rank": cs["rank"],
+        "combat": {"power": cs["battle_power"], "realm_zh": REALM_ZH[child.cultivation.realm],
                    "breakdown": cs["breakdown"], "accuracy": round(cs["accuracy"] * 100)},
         "cards": collection_summary(child.cards),
         "this_week": {
