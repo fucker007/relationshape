@@ -169,6 +169,18 @@ class CompanionEngine:
             return []
         return st.memory.apply_extracted(facts, source_text=text)
 
+    def close(self) -> None:
+        """释放存储后端资源（如 PostgresStateStore 的连接池）。可安全多次调用。"""
+        close = getattr(self.store, "close", None)
+        if callable(close):
+            close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
     def _touch_session(self, st: UserRelationState, now: datetime) -> tuple[bool, int]:
         """会话切分与缺席处理。返回 (是否新会话, 距上次的间隔天数)。"""
         if not st.core.first_met:
@@ -455,9 +467,14 @@ class CompanionEngine:
             # 无 prepare 的直接提交（如历史导入）：感知与语义事实在这里补做
             frame, reading = perceive(user_text)
         known_user_name = st.memory.user_name or ""
-        learned_facts = st.memory.extract_facts(user_text, frame.actors)
-        if direct_commit:       # 正常流的 LLM 抽取在 prepare_turn 已做，避免重复调用
+        if direct_commit:
+            # 无 prepare（如历史导入）：这里首次抽取（规则 + 可选 LLM）
+            learned_facts = st.memory.extract_facts(user_text, frame.actors)
             learned_facts += self._llm_extract(st, user_text, frame, bool(learned_facts))
+        else:
+            # 正常流：事实已在 prepare_turn 抽取并写入 st.memory，直接复用 pending，
+            # 不再重复调用 extract_facts（既省一次全量正则，也避免与 pending 分叉）
+            learned_facts = pend.get("learned", [])
         learned_user_name = any(fact.startswith("名字：") for fact in learned_facts)
         is_user_name_intro = bool(
             known_user_name

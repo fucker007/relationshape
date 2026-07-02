@@ -161,7 +161,6 @@ class ConversationFrame:
     bid: BidType = BidType.CONNECTION
     actors: list[str] = field(default_factory=list)      # 提到的外部人物（妈妈/老师/客户…）
     topic_tokens: list[str] = field(default_factory=list)
-    action: Optional[str] = None                          # 发生了什么（改需求/批评…）
     is_question: bool = False
     asks_advice: bool = False
     disclosure_depth: int = 0      # 社会渗透深度：0 无 / 1 活动偏好 / 2 感受 / 3 脆弱

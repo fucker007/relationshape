@@ -84,13 +84,22 @@ class Episode:
     sensitive: bool = False
     vulnerability: int = 0   # 表露深度：3=秘密级，不做开场钩子
     tags: list[str] = field(default_factory=list)
+    _bg: "set | None" = field(default=None, repr=False, compare=False)   # 主题二元组缓存，不序列化
+
+    def bigrams(self) -> set:
+        """text 的字符二元组，惰性缓存——召回按记忆量 O(n) 扫描时避免每轮重算。"""
+        if self._bg is None:
+            self._bg = zh.bigrams(self.text)
+        return self._bg
 
     def to_dict(self) -> dict:
-        return self.__dict__.copy()
+        d = self.__dict__.copy()
+        d.pop("_bg", None)                # 缓存不入库
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "Episode":
-        return cls(**d)
+        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
 
 @dataclass
@@ -596,7 +605,7 @@ class MemoryBank:
             days = (now - created).total_seconds() / 86400.0
             if days < 0:
                 continue
-            overlap = zh.jaccard(qb, zh.bigrams(ep.text))
+            overlap = zh.jaccard(qb, ep.bigrams())
             if overlap <= 0.02:
                 continue
             effective_half_life = half_life_days * (1 + 0.8 * ep.recall_count)
