@@ -86,7 +86,7 @@ class Settings(BaseSettings):
     llm_provider: str = "qwen"  # "anthropic" 或 "qwen"
     qwen_api_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     qwen_model_name: str = "qwen-plus"
-    qwen_api_key: str = "sk-95f76087084846d2b6a677000d10f309"
+    qwen_api_key: str = ""   # 通过环境变量 MEMORY_QWEN_API_KEY 注入，切勿硬编码进源码
 
     @property
     def effective_model(self) -> str:

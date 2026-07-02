@@ -50,7 +50,7 @@ REQUIRED_COLUMNS: Dict[str, Set[str]] = {
     },
     "relationships": {
         "id", "owner_id", "from_person_id", "to_person_id", "relation_type",
-        "sentiment", "intensity", "last_event_id", "updated_at",
+        "sentiment", "intensity", "last_event_id", "state", "updated_at",
     },
     "extraction_tasks": {
         "task_id", "owner_id", "session_id", "payload", "status",

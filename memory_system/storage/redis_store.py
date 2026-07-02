@@ -185,12 +185,13 @@ class RedisStore:
         person_id = str(entry.person_id)
         memory_id = str(entry.memory_id)
 
-        # 提取事件类型和参与者用于更精确的去重
+        # 提取事件类型和参与者用于更精确的去重（数据在 structured_data，MemoryEntry 无 metadata 字段）
         event_type = ""
         participants = []
-        if entry.memory_type == "event" and entry.metadata:
-            event_type = entry.metadata.get("event_type", "")
-            participants = entry.metadata.get("participants", [])
+        meta = entry.structured_data or {}
+        if entry.memory_type == "event" and meta:
+            event_type = meta.get("event_type", "")
+            participants = meta.get("participants", [])
 
         fingerprint = _compute_fingerprint(entry.memory_type, entry.content, event_type, participants)
 

@@ -721,6 +721,8 @@ CREATE TABLE IF NOT EXISTS events (
     raw_turns       JSONB DEFAULT '[]',
     source_message  TEXT DEFAULT '',
     extracted_by    VARCHAR(100) DEFAULT '',
+    trauma          BOOLEAN DEFAULT FALSE,
+    priority        VARCHAR(10),
     is_deleted      BOOLEAN DEFAULT FALSE,
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     updated_at      TIMESTAMPTZ DEFAULT NOW()
@@ -745,6 +747,7 @@ CREATE TABLE IF NOT EXISTS relationships (
     intensity       FLOAT DEFAULT 0.0,
     last_event_id   UUID,
     last_event_time TIMESTAMPTZ,
+    state           JSONB DEFAULT '{}'::jsonb,
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     updated_at      TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(from_person_id, to_person_id)
@@ -884,6 +887,17 @@ class GraphStore:
             )
 
     # ── Event ─────────────────────────────────────────────────────────────
+
+    async def update_event_field(self, event_id, field: str, value: Any) -> None:
+        """更新事件的单个字段（allowlist 限定；供创伤标记等使用）。"""
+        allowed = {"trauma", "priority", "importance", "belief_impact"}
+        if field not in allowed:
+            raise ValueError(f"field {field!r} not allowed")
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                f"UPDATE events SET {field} = $1, updated_at = NOW() WHERE event_id = $2",
+                value, event_id,
+            )
 
     async def insert_event(self, event: dict) -> None:
         """写入一个事件"""
@@ -1059,7 +1073,14 @@ class GraphStore:
                        ELSE relationships.sentiment
                      END,
                      intensity = LEAST(1.0, relationships.intensity + 0.05),
-                     relation_type = COALESCE(EXCLUDED.relation_type, relationships.relation_type),
+                     -- 不降级：明确类型(friend/family…)绝不被后续的 'other' 覆盖回去
+                     relation_type = CASE
+                       WHEN EXCLUDED.relation_type IS NOT NULL AND EXCLUDED.relation_type <> 'other'
+                         THEN EXCLUDED.relation_type
+                       WHEN relationships.relation_type IS NOT NULL AND relationships.relation_type <> 'other'
+                         THEN relationships.relation_type
+                       ELSE COALESCE(EXCLUDED.relation_type, relationships.relation_type)
+                     END,
                      last_event_id = COALESCE($6, relationships.last_event_id),
                      last_event_time = COALESCE($7, relationships.last_event_time),
                      state = CASE
@@ -1068,7 +1089,7 @@ class GraphStore:
                      END,
                      updated_at = NOW()
                    RETURNING *""",
-                owner_id, from_person_id, to_person_id, relation_type[:30],
+                owner_id, from_person_id, to_person_id, (relation_type or "other")[:30],
                 sentiment_delta,
                 event_id, event_time, state_payload,
             )

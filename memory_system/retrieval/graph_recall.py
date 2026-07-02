@@ -241,6 +241,13 @@ async def build_profile_summary(
     # 收集已通过 relationship 输出的 person_id，避免下面"其他成员"重复
     _rel_person_ids: set[str] = set()
     if rels:
+        # 关系数量聚合：回答"我有几个朋友/家人"这类问题（按全部关系统计，不受下面 top-5 展示截断影响）
+        from collections import Counter as _Counter
+        _rt_zh = {"friend": "朋友", "family": "家人", "classmate": "同学", "teacher": "老师",
+                  "colleague": "同事", "partner": "伴侣", "other": "其他"}
+        _counts = _Counter((r.get("relation_type") or "other") for r in rels)
+        _cparts = [f"{_rt_zh.get(k, k)}{v}{tpl.get('count_unit', '个')}" for k, v in _counts.most_common()]
+        lines.append(f"{tpl.get('section_social_count', '**关系数量**')}：{sep_comma.join(_cparts)}（共{len(rels)}）")
         lines.append(f"{tpl.get('section_social', '**社交圈**')}：")
         for r in rels[:5]:
             to_name = r.get("to_name", "?")
