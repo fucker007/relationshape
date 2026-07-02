@@ -285,6 +285,11 @@ class GrowthEngine:
         child.today_answered[cid] = {"correct": correct, "credit": credit}
         self._update_dominant(child)
 
+        # ---- "火热"当日锁存：客观题 ≥2 且正确率 ≥80% 即点燃，当天不回落 ----
+        objs = [v["correct"] for v in child.today_answered.values() if v["correct"] is not None]
+        if len(objs) >= 2 and sum(objs) / len(objs) >= 0.8:
+            child.hot_day = day
+
         # ---- 孵化层：每道题 = 喂蛋一颗灵材（仅蛋阶段）----
         fed = None
         if child.cultivation.stage == "egg":
@@ -395,6 +400,8 @@ class GrowthEngine:
         if a_id == b_id:
             return {"error": "same_child"}
         A, B = self._get(a_id), self._get(b_id)
+        if any(c.cultivation.stage == "egg" for c in (A, B)):
+            return {"error": "egg_cannot_battle", "detail": "蛋还没破壳，不能出战"}
         day = _day(now)
         for c in (A, B):
             self._roll_day(c, day)
@@ -461,7 +468,7 @@ class GrowthEngine:
 
     # ------------------------------------------------------------------ 报告 / 原始态
     def report(self, child_id: str, now: Optional[datetime] = None) -> dict:
-        return build_report(self._get(child_id))
+        return build_report(self._get(child_id), _day(now or datetime.now()))
 
     def raw_state(self, child_id: str) -> dict:
         return self._get(child_id).to_dict()

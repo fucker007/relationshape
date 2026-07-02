@@ -8,25 +8,33 @@
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 from growth.battle import combat_stats
 from growth.cards import collection_summary, realm_progress
 from growth.types import ABILITY_ZH, Ability
 
 
-def _week_ago_level(history: list, current: float) -> float:
-    if not history:
-        return current
-    if len(history) >= 8:
-        return float(history[-8][1])
-    return float(history[0][1])
+def _level_on(history: list, cutoff_day: str, fallback: float) -> float:
+    """cutoff_day（含）之前最近一次采样；此前无采样则取最早样本。按真实日历，跳天不失真。"""
+    level = None
+    for d, v in history:
+        if d <= cutoff_day:
+            level = v
+        else:
+            break
+    if level is None:
+        level = history[0][1] if history else fallback
+    return float(level)
 
 
-def build_report(child) -> dict:
+def build_report(child, day: str) -> dict:
+    week_cutoff = (date.fromisoformat(day) - timedelta(days=7)).isoformat()
     abilities, best = [], None
     for a in Ability:
         t = child.abilities.track(a)
         now = round(t.level)
-        ago = round(_week_ago_level(t.history, t.level))
+        ago = round(_level_on(t.history, week_cutoff, t.level))
         acc = t.accuracy()
         rp = realm_progress(t.level)
         item = {

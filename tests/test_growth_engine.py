@@ -37,6 +37,17 @@ def _answer_all(eng, cid, now, mode="correct"):
     return eng.home(cid, now=now)
 
 
+def _hatch(eng, cid, start, mode="correct"):
+    """喂满 7 天让蛋破壳（对战前置：蛋不可战）。"""
+    for d in range(7):
+        _answer_all(eng, cid, start + timedelta(days=d), mode)
+
+
+def _item(eng, prompt_sub):
+    """按题面子串取题——不依赖 cid 编号，题库扩容后依然稳定。"""
+    return next(c for c in eng.bank.items if prompt_sub in c.prompt)
+
+
 def test_today_shape_and_no_answer_leak(tmp_path):
     eng = _eng(tmp_path)
     c = eng.create_child("小测", now=DAY0)
@@ -100,16 +111,25 @@ def test_ability_rises_with_correct_answers(tmp_path):
     assert after > before
 
 
-def test_battle_friendly_protects_weak(tmp_path):
+def test_egg_cannot_battle(tmp_path):
+    eng = _eng(tmp_path)
+    a = eng.create_child("蛋一", now=DAY0)
+    b = eng.create_child("蛋二", now=DAY0)
+    assert eng.battle(a.child_id, b.child_id, now=DAY0)["error"] == "egg_cannot_battle"
+
+
+def test_battle_loser_still_rewarded(tmp_path):
     eng = _eng(tmp_path)
     strong = eng.create_child("强", now=DAY0)
-    weak = eng.create_child("弱", now=DAY0)        # 全新、没练过的孩子 = 真正的弱者
-    for d in range(12):
+    weak = eng.create_child("弱", now=DAY0)
+    _hatch(eng, strong.child_id, DAY0)
+    _hatch(eng, weak.child_id, DAY0)
+    for d in range(7, 20):                          # 强者继续练，拉开差距
         _answer_all(eng, strong.child_id, DAY0 + timedelta(days=d))
-    res = eng.battle(strong.child_id, weak.child_id, now=DAY0 + timedelta(days=12))
-    assert res["friendly"] is True                 # 段位悬殊 → 友谊赛
+    res = eng.battle(strong.child_id, weak.child_id, now=DAY0 + timedelta(days=20))
+    assert "error" not in res
     loser = "b" if res["winner"] == "a" else "a"
-    assert res[f"{loser}_reward"]["growth"] > 0    # 输了不被罚
+    assert res[f"{loser}_reward"]["growth"] > 0     # 输了不被罚
     assert res[f"{loser}_reward"]["stars"] > 0
 
 
@@ -117,15 +137,64 @@ def test_battle_log_is_playable(tmp_path):
     eng = _eng(tmp_path)
     a = eng.create_child("甲", now=DAY0)
     b = eng.create_child("乙", now=DAY0)
-    for d in range(3):
-        _answer_all(eng, a.child_id, DAY0 + timedelta(days=d))
-        _answer_all(eng, b.child_id, DAY0 + timedelta(days=d))
-    res = eng.battle(a.child_id, b.child_id, now=DAY0 + timedelta(days=3))
+    _hatch(eng, a.child_id, DAY0)
+    _hatch(eng, b.child_id, DAY0)
+    res = eng.battle(a.child_id, b.child_id, now=DAY0 + timedelta(days=7))
     assert res["log"] and len(res["log"]) >= 2
     ev = res["log"][0]
     for k in ("actor", "foe", "move", "dmg", "crit", "hp_a", "hp_b", "pct_a", "pct_b"):
         assert k in ev
     assert res["log"][-1]["pct_a"] < 100 or res["log"][-1]["pct_b"] < 100   # 有人掉血了
+
+
+def test_scoring_rejects_superstring_and_negation(tmp_path):
+    """P0 判分红线：'19' 不算答对 '9'；'不是黄色' 不算答对 '黄'。"""
+    eng = _eng(tmp_path)
+    seq = _item(eng, "1, 3, 5, 7")
+    assert eng.bank.score(seq, "19")[0] is False
+    assert eng.bank.score(seq, "9")[0] is True
+    color = _item(eng, "红、黄")
+    assert eng.bank.score(color, "不是黄色")[0] is False
+    assert eng.bank.score(color, "我觉得是黄色")[0] is True
+
+
+def test_effort_garbage_gets_low_credit_and_no_highlight(tmp_path):
+    eng = _eng(tmp_path)
+    c = eng.create_child("效", now=DAY0)
+    expr = [ch for ch in eng.home(c.child_id, now=DAY0)["today"]["challenges"]
+            if ch["kind"] == "expression"][0]
+    r = eng.answer(c.child_id, expr["cid"], "aaaaaaaaaa", now=DAY0)
+    assert r["outcome"]["credit"] <= 0.2
+    assert eng._get(c.child_id).highlights == []    # 乱敲不进家长周报"亮点"
+
+
+def test_hot_form_latches_for_the_day(tmp_path):
+    """上午打出火热，下午失误不回落（当日锁存）。"""
+    eng = _eng(tmp_path)
+    c = eng.create_child("热", now=DAY0)
+    by_kind = {ch["kind"]: ch for ch in eng.home(c.child_id, now=DAY0)["today"]["challenges"]}
+    for kind in ("warmup", "logic"):
+        item = eng.bank.get(by_kind[kind]["cid"])
+        eng.answer(c.child_id, item.cid, item.answer, now=DAY0)
+    assert eng.home(c.child_id, now=DAY0)["combat"]["form"] == "hot"
+    eng.answer(c.child_id, by_kind["observation"]["cid"], "完全不对的胡乱回答", now=DAY0)
+    assert eng.home(c.child_id, now=DAY0)["combat"]["form"] == "hot"
+
+
+def test_report_week_ago_uses_calendar(tmp_path):
+    """练了 7 天后停 13 天再回来：'周初'应取日历上 7 天前的水平，而非倒数第 8 个采样。"""
+    from growth.types import Ability
+    eng = _eng(tmp_path)
+    c = eng.create_child("历", now=DAY0)
+    for d in range(7):
+        _answer_all(eng, c.child_id, DAY0 + timedelta(days=d))
+    _answer_all(eng, c.child_id, DAY0 + timedelta(days=20))
+    rep = eng.report(c.child_id, now=DAY0 + timedelta(days=20))
+    tr = eng._get(c.child_id).abilities.track(Ability.LOGIC)
+    day6 = (DAY0 + timedelta(days=6)).date().isoformat()
+    expect = round(dict((d, v) for d, v in tr.history)[day6])
+    logic = next(a for a in rep["abilities"] if a["ability"] == "logic")
+    assert logic["week_ago"] == expect
 
 
 def test_combat_breakdown_sums_to_power(tmp_path):

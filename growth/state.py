@@ -36,6 +36,7 @@ class ChildState:
 
     cards: dict = field(default_factory=dict)          # card_id -> 拥有数量
     card_progress: dict = field(default_factory=dict)  # ability.value -> 累计答对数（掉藏品卡用）
+    hot_day: Optional[str] = None                      # "火热"状态的锁存日（当日只上不下）
 
     # 今日会话
     today_day: Optional[str] = None
@@ -55,11 +56,8 @@ class ChildState:
         return {k: v.level for k, v in self.abilities.tracks.items()}
 
     def today_form(self) -> str:
-        """今日状态:当天客观题正确率高 → 'hot'(只上不下的当日 buff)，否则 'normal'。"""
-        objs = [v for v in self.today_answered.values() if v.get("correct") in (True, False)]
-        if len(objs) >= 2 and sum(1 for v in objs if v.get("correct")) / len(objs) >= 0.8:
-            return "hot"
-        return "normal"
+        """今日状态：'hot' 当日锁存——上午打出来的火热，不因下午失误被收走。"""
+        return "hot" if self.hot_day and self.hot_day == self.today_day else "normal"
 
     def own_card(self, cid: str) -> None:
         self.cards[cid] = self.cards.get(cid, 0) + 1
@@ -100,6 +98,7 @@ class ChildState:
             "friendly_battles": self.friendly_battles,
             "cards": self.cards,
             "card_progress": self.card_progress,
+            "hot_day": self.hot_day,
             "today_day": self.today_day,
             "today_cids": self.today_cids,
             "today_answered": self.today_answered,
@@ -129,6 +128,7 @@ class ChildState:
             friendly_battles=d.get("friendly_battles", 0),
             cards=d.get("cards", {}),
             card_progress=d.get("card_progress", {}),
+            hot_day=d.get("hot_day"),
             today_day=d.get("today_day"),
             today_cids=d.get("today_cids", []),
             today_answered=d.get("today_answered", {}),

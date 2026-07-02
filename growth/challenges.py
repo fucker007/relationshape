@@ -21,10 +21,53 @@ from growth.types import (
 )
 
 _NORM_RE = re.compile(r"[\s，,。.、!！?？;；:：\"'·`（）()\[\]【】]+")
+_DIGITS_RE = re.compile(r"\d+")
+_MASH_RE = re.compile(r"[a-z0-9\s.,!?~-]+", re.I)   # 纯字母数字 = 乱敲键盘
+_NEGATION = ("不", "没", "别", "非")
 
 
 def _norm(s: Optional[str]) -> str:
     return _NORM_RE.sub("", (s or "").strip()).lower()
+
+
+def _hit(key: str, ans: str) -> bool:
+    """单个关键词是否命中（key/ans 均已规范化）。
+
+    三条规则堵住"子串瞎蒙"：纯数字整词比对（答'19'不算命中'9'）；
+    关键词单向出现在答案里（不再反向）；紧邻否定词的出现不算（"不是黄色"不算答对"黄"）。
+    """
+    if key.isdigit():
+        return key in _DIGITS_RE.findall(ans)
+    if ans == key:
+        return True
+    i = ans.find(key)
+    while i != -1:
+        if not any(n in ans[max(0, i - 2):i] for n in _NEGATION):
+            return True
+        i = ans.find(key, i + 1)
+    return False
+
+
+def match_answer(keys: list, answer: str) -> bool:
+    """客观题匹配入口——题库判分与书籍测验共用同一口径。"""
+    ans = _norm(answer)
+    if not ans:
+        return False
+    return any(_hit(_norm(k), ans) for k in keys if _norm(k))
+
+
+def effort_credit(answer: str) -> tuple[float, str]:
+    """表达/创造题的努力学分：不判对错，但挡住无效输入（乱敲不给分、不进高光）。"""
+    s = (answer or "").strip()
+    if not s:
+        return 0.0, "这一关想到什么都可以说，再试试看？"
+    if len(set(s)) <= 2 or _MASH_RE.fullmatch(s):
+        return 0.2, "嗯…用你自己的话，认真说说看好吗？"
+    if len(s) < 6:
+        return 0.6, "开了个头啦！能再多说一两句吗？"
+    if len(set(s)) / len(s) < 0.4:
+        return 0.4, "再说点不一样的内容，会更精彩哦！"
+    return 1.0, "说得真好，你的想法很特别！"
 
 
 def _target_difficulty(level: float, grade: int) -> int:
@@ -89,24 +132,16 @@ class ChallengeBank:
     def score(self, challenge: Challenge, answer: str) -> tuple[Optional[bool], float, str]:
         """判分。返回 (correct|None, credit 0..1, feedback)。
 
-        - EFFORT（表达/创造）：无对错，只看是否认真参与；哪怕一句也给参与分。
-        - OBJECTIVE：标准答案规范化比较，或命中任一 accept 关键词即算对；
+        - EFFORT（表达/创造）：无对错，effort_credit 度量参与质量（乱敲挡在门外）。
+        - OBJECTIVE：match_answer 命中标准答案或任一 accept 关键词即算对；
           答错也给 0.5 的"你尝试了"学分（努力内核：参与就有价值）。
         """
-        ans = answer or ""
         if challenge.score_mode == ScoreMode.EFFORT:
-            n = len(ans.strip())
-            if n == 0:
-                return None, 0.0, "这一关想到什么都可以说，再试试看？"
-            if n < 6:
-                return None, 0.6, "开了个头啦！能再多说一两句吗？"
-            return None, 1.0, "说得真好，你的想法很特别！"
+            credit, feedback = effort_credit(answer)
+            return None, credit, feedback
 
-        na = _norm(ans)
-        if not na:
+        if not _norm(answer):
             return False, 0.0, "先别急，读一遍题，把你想到的答案说出来。"
-        keys = [challenge.answer or ""] + list(challenge.accept)
-        hit = any(_norm(k) and (_norm(k) in na or na in _norm(k)) for k in keys)
-        if hit:
+        if match_answer([challenge.answer or "", *challenge.accept], answer):
             return True, 1.0, "答对啦，思路很清楚！"
         return False, 0.5, "差一点点——别灰心，我们一起看看。"
