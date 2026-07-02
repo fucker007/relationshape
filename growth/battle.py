@@ -18,7 +18,7 @@ import random
 from growth.types import ABILITY_ELEMENT, ABILITY_ZH, Ability
 
 # ===================== 旋钮表 =====================
-HP_BASE, HP_STREAK, HP_STREAK_CAP, HP_ACT, HP_ACT_CAP, HP_GROWTH = 80, 5, 60, 3, 35, 0.08
+HP_BASE, HP_STREAK, HP_STREAK_CAP, HP_ACT, HP_ACT_CAP, HP_FEED = 80, 5, 60, 3, 35, 0.9
 ATK_BASE, ATK_K = 12, 0.35           # 逻辑
 CRIT_BASE, CRIT_K, CRIT_MIN, CRIT_MAX = 0.05, 0.35, 0.05, 0.50   # 观察/正确率
 SPD_BASE, SPD_K = 8, 0.10            # 专注
@@ -56,12 +56,14 @@ def _elem_adv(a: str, b: str) -> int:
 def combat_stats(child) -> dict:
     """从孩子状态算出战斗属性 + 战力拆解(breakdown 之和=战力)。"""
     from growth.cards import card_power_bonus
+    from growth.cultivation import DOMAIN_ELEM, species_info
 
     lv = lambda a: child.abilities.track(a).level
+    cv = child.cultivation
     hp = round(HP_BASE
                + min(child.streak, HP_STREAK_CAP) * HP_STREAK
                + min(child.recent_activity(), HP_ACT_CAP) * HP_ACT
-               + child.pet.growth_value * HP_GROWTH)
+               + cv.feed_total() * HP_FEED)
     atk = round(ATK_BASE + lv(Ability.LOGIC) * ATK_K, 1)
     acc = child.abilities.overall_accuracy()
     crit = max(CRIT_MIN, min(CRIT_MAX, CRIT_BASE + CRIT_K * acc))
@@ -69,7 +71,8 @@ def combat_stats(child) -> dict:
     special = round(SPECIAL_BASE + lv(Ability.EXPRESSION) * SPECIAL_K, 2)
     creation = lv(Ability.CREATION)
     dom = child.abilities.strongest()
-    element = ABILITY_ELEMENT[dom]
+    sp = species_info(cv.species)
+    element = sp["elem"] if sp else DOMAIN_ELEM[cv.dominant()]   # 元素随物种（未破壳看主导域）
     form = child.today_form()
     card_bonus = card_power_bonus(child.cards)
 

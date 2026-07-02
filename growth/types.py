@@ -33,15 +33,6 @@ ABILITY_ZH = {
     Ability.CREATION: "创造力",
 }
 
-# 能力 → 徽章名（产品：智慧 / 语言 / 专注 / 观察 / 想象徽章）
-ABILITY_BADGE = {
-    Ability.LOGIC: "智慧徽章",
-    Ability.EXPRESSION: "语言徽章",
-    Ability.FOCUS: "专注徽章",
-    Ability.OBSERVATION: "观察徽章",
-    Ability.CREATION: "想象徽章",
-}
-
 # 能力 → 元素（洛克王国式"属性"，给对战加点味道；纯展示，不改变努力内核）
 ABILITY_ELEMENT = {
     Ability.LOGIC: "晶",
@@ -124,77 +115,4 @@ class Challenge:
             "prompt": self.prompt,
             "score_mode": self.score_mode.value,
             "options": list(self.options),
-        }
-
-
-@dataclass
-class AnswerOutcome:
-    """一次作答的结果——服务端判定，客户端只渲染。"""
-
-    cid: str
-    kind: ChallengeKind
-    ability: Ability
-    correct: Optional[bool]   # None = 无对错（表达 / 创造）
-    credit: float             # 努力学分 0..1，无论对错都给（只要认真参与）
-    stars_earned: int         # 智慧星
-    growth_earned: int        # 宠物成长值
-    feedback: str             # 给孩子的话（答对鼓励 / 答错指点）
-    explain: str = ""         # 讲解（答错或答完展开）
-    extend: str = ""          # 引申
-    is_highlight: bool = False  # 是否存为"高光"（进家长周报亮点）
-
-
-@dataclass
-class GrowthEvent:
-    """成长总线上的一个事件——驱动宠物 / 徽章 / 家长报告。"""
-
-    kind: str        # answer / daily_complete / streak / badge / level_up / battle / milestone
-    label: str
-    detail: str = ""
-
-    def to_dict(self) -> dict:
-        return {"kind": self.kind, "label": self.label, "detail": self.detail}
-
-
-@dataclass
-class BattleRound:
-    label: str       # 这一回合比拼的能力（中文）
-    a_roll: int
-    b_roll: int
-    winner: str      # "a" / "b" / "tie"
-
-    def to_dict(self) -> dict:
-        return {"label": self.label, "a_roll": self.a_roll,
-                "b_roll": self.b_roll, "winner": self.winner}
-
-
-@dataclass
-class BattleResult:
-    """碰一碰对战结果——服务端按战力（=努力）判定，客户端只放动画。"""
-
-    a_id: str
-    b_id: str
-    a_name: str
-    b_name: str
-    a_power: int
-    b_power: int
-    a_rank: str
-    b_rank: str
-    winner: str                       # "a" / "b" / "tie"
-    friendly: bool                    # 段位差过大 → 友谊赛（弱者不被碾压、仍有奖励）
-    rounds: list[BattleRound] = field(default_factory=list)
-    a_reward: dict = field(default_factory=dict)   # {stars, growth}
-    b_reward: dict = field(default_factory=dict)
-    narration: str = ""               # 一句战报（可分享到抖音/朋友圈的文案种子）
-
-    def to_dict(self) -> dict:
-        return {
-            "a_id": self.a_id, "b_id": self.b_id,
-            "a_name": self.a_name, "b_name": self.b_name,
-            "a_power": self.a_power, "b_power": self.b_power,
-            "a_rank": self.a_rank, "b_rank": self.b_rank,
-            "winner": self.winner, "friendly": self.friendly,
-            "rounds": [r.to_dict() for r in self.rounds],
-            "a_reward": self.a_reward, "b_reward": self.b_reward,
-            "narration": self.narration,
         }

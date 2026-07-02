@@ -1,6 +1,6 @@
 """每个孩子一份的成长状态文档（与 relationshape 的 UserRelationState 同构思路）。
 
-一个自洽的 JSON 文档：能力、宠物、徽章、坚持、今日会话、历史、亮点、事件流。
+一个自洽的 JSON 文档：能力、宠物（cultivation）、卡牌、坚持、今日会话、历史、亮点、事件流。
 整存整取，便于 JSON / 未来 JSONB 落库。所有"业务"都在 engine 里，这里只装数据。
 """
 
@@ -10,8 +10,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from growth.abilities import AbilityState
-from growth.cultivation import Incubation
-from growth.pet import PetState
+from growth.cultivation import Cultivation
 
 
 @dataclass
@@ -23,11 +22,9 @@ class ChildState:
     created_day: Optional[str] = None
 
     abilities: AbilityState = field(default_factory=AbilityState.fresh)
-    pet: PetState = field(default_factory=PetState)
-    cultivation: Incubation = field(default_factory=Incubation)
+    cultivation: Cultivation = field(default_factory=Cultivation)
 
     stars: int = 0
-    badges: list = field(default_factory=list)
     streak: int = 0
     best_streak: int = 0
     last_completed_day: Optional[str] = None
@@ -63,12 +60,6 @@ class ChildState:
         self.cards[cid] = self.cards.get(cid, 0) + 1
 
     # ---- 变更助手 ----
-    def add_badge(self, name: str) -> bool:
-        if name in self.badges:
-            return False
-        self.badges.append(name)
-        return True
-
     def log_event(self, kind: str, label: str, day: str, detail: str = "") -> None:
         self.events.append({"kind": kind, "label": label, "detail": detail, "day": day})
         self.events = self.events[-40:]
@@ -87,10 +78,8 @@ class ChildState:
             "grade": self.grade,
             "created_day": self.created_day,
             "abilities": self.abilities.to_dict(),
-            "pet": self.pet.to_dict(),
             "cultivation": self.cultivation.to_dict(),
             "stars": self.stars,
-            "badges": self.badges,
             "streak": self.streak,
             "best_streak": self.best_streak,
             "last_completed_day": self.last_completed_day,
@@ -117,10 +106,8 @@ class ChildState:
             grade=d.get("grade", 2),
             created_day=d.get("created_day"),
             abilities=AbilityState.from_dict(d.get("abilities", {})),
-            pet=PetState.from_dict(d.get("pet", {})),
-            cultivation=Incubation.from_dict(d.get("cultivation", {})),
+            cultivation=Cultivation.from_dict(d.get("cultivation", {})),
             stars=d.get("stars", 0),
-            badges=d.get("badges", []),
             streak=d.get("streak", 0),
             best_streak=d.get("best_streak", 0),
             last_completed_day=d.get("last_completed_day"),

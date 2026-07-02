@@ -1,17 +1,16 @@
-"""卡牌奖励系统 + 修仙境界。
+"""卡牌奖励系统 + 修为阶梯。
 
-两层:
-1. 境界(REALMS):按能力**真实等级**划分的修为阶梯,每种能力各爬各的——
-   逻辑·宗师 / 表达·大师……靠"答得准→能力涨"晋升,突破时掉一张"境界卡"。
-2. 卡牌(CATALOG):确定性掉落的收藏品(**不是抽卡**,守住"不做变率强化"的伦理):
-   - 答对累积到阈值 → 该能力的"藏品卡"(凡→天,稀有度递增)
-   - 突破境界 → "境界卡"
-   - 连续打卡里程碑 → "坚持卡"
-   - 对战 → "对战卡"
-   稀有度走修仙品阶:凡品/灵品/玄品/地品/天品/仙品。
+词汇约定：宠物本体的阶段叫「境界」（cultivation.py：蛋→幼年→…）；
+这里按能力**真实等级**划分的阶梯叫「修为」——逻辑·宗师 / 表达·大师……
+靠"答得准→能力涨"晋升，突破时掉一张修为卡。
 
-约束关联:藏卡给一个**有上限**的"藏卡战力加成"(card_power_bonus),绑进战力但封顶,
-延续"技巧是锋芒不是碾压"。卡靠玩(努力)拿,绝不靠充值。
+卡牌(CATALOG)：确定性掉落的收藏品（**不是抽卡**，守住"不做变率强化"的伦理）：
+- 答对累积到阈值 → 该能力的"藏品卡"（凡→天，稀有度递增）
+- 修为突破 → "修为卡"；连续打卡里程碑 → "坚持卡"；对战 → "对战卡"
+稀有度走修仙品阶：凡品/灵品/玄品/地品/天品/仙品。
+
+约束关联：藏卡给一个**有上限**的战力加成(card_power_bonus)，绑进战力但封顶，
+延续"技巧是锋芒不是碾压"。卡靠玩（努力）拿，绝不靠充值。
 """
 
 from __future__ import annotations
@@ -21,33 +20,28 @@ from typing import Optional
 
 from growth.types import ABILITY_ZH, Ability
 
-# ---- 修为境界(按能力等级 0..100) ----
-REALMS = [
+# ---- 修为（按能力等级 0..100） ----
+MASTERY = [
     (0, "蒙童"), (12, "小天才"), (24, "学徒"), (38, "大师"),
     (52, "宗师"), (66, "盟主"), (78, "半圣"), (90, "圣贤"), (97, "一代宗师"),
 ]
 
 
-def realm_index(level: float) -> int:
+def mastery_index(level: float) -> int:
     idx = 0
-    for i, (thr, _n) in enumerate(REALMS):
+    for i, (thr, _n) in enumerate(MASTERY):
         if level >= thr:
             idx = i
     return idx
 
 
-def realm_for(level: float) -> tuple[int, str]:
-    i = realm_index(level)
-    return i, REALMS[i][1]
-
-
-def realm_progress(level: float) -> dict:
-    i = realm_index(level)
-    name = REALMS[i][1]
-    nxt = REALMS[i + 1] if i + 1 < len(REALMS) else None
+def mastery_progress(level: float) -> dict:
+    i = mastery_index(level)
+    name = MASTERY[i][1]
+    nxt = MASTERY[i + 1] if i + 1 < len(MASTERY) else None
     if nxt is None:
         return {"index": i, "name": name, "next": None, "pct": 100}
-    cur = REALMS[i][0]
+    cur = MASTERY[i][0]
     pct = round(100 * (level - cur) / (nxt[0] - cur)) if nxt[0] > cur else 100
     return {"index": i, "name": name, "next": nxt[1], "pct": max(0, min(100, pct))}
 
@@ -118,13 +112,13 @@ def _build_catalog() -> dict:
         for i, (nm, fl) in enumerate(names):
             cid = f"collect-{ab.value}-{i}"
             cat[cid] = Card(cid, nm, ab.value, i, fl, "collect")
-    # 境界卡(每能力,境界 idx 1..8)
+    # 修为卡(每能力,修为 idx 1..8)
     for ab in Ability:
-        for ri in range(1, len(REALMS)):
-            cid = f"realm-{ab.value}-{ri}"
+        for ri in range(1, len(MASTERY)):
+            cid = f"mastery-{ab.value}-{ri}"
             rar = min(5, ri - 1)
-            cat[cid] = Card(cid, f"{ABILITY_ZH[ab]}·{REALMS[ri][1]}", ab.value, rar,
-                            f"{ABILITY_ZH[ab]}修为臻至{REALMS[ri][1]}之境。", "realm")
+            cat[cid] = Card(cid, f"{ABILITY_ZH[ab]}·{MASTERY[ri][1]}", ab.value, rar,
+                            f"{ABILITY_ZH[ab]}修为臻至{MASTERY[ri][1]}。", "mastery")
     # 坚持卡
     for thr, (nm, rar, fl) in _STREAK_CARDS.items():
         cid = f"streak-{thr}"
@@ -151,11 +145,11 @@ def on_correct(progress_before: int, progress_after: int, ability: Ability, owne
     return out
 
 
-def on_realm_up(ability: Ability, old_level: float, new_level: float, owned: set) -> list[str]:
+def on_mastery_up(ability: Ability, old_level: float, new_level: float, owned: set) -> list[str]:
     out = []
-    oi, ni = realm_index(old_level), realm_index(new_level)
+    oi, ni = mastery_index(old_level), mastery_index(new_level)
     for ri in range(oi + 1, ni + 1):
-        cid = f"realm-{ability.value}-{ri}"
+        cid = f"mastery-{ability.value}-{ri}"
         if cid in CATALOG and cid not in owned:
             out.append(cid)
     return out

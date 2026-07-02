@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from growth.battle import combat_stats
-from growth.cards import collection_summary, realm_progress
+from growth.cards import collection_summary, mastery_progress
 from growth.types import ABILITY_ZH, Ability
 
 
@@ -36,13 +36,13 @@ def build_report(child, day: str) -> dict:
         now = round(t.level)
         ago = round(_level_on(t.history, week_cutoff, t.level))
         acc = t.accuracy()
-        rp = realm_progress(t.level)
+        mp = mastery_progress(t.level)
         item = {
             "ability": a.value, "ability_zh": ABILITY_ZH[a],
             "now": now, "week_ago": ago, "delta": now - ago,
             "practiced": t.practiced,
             "accuracy": None if acc is None else round(acc * 100),   # 近期真实正确率
-            "realm": rp["name"], "realm_next": rp["next"], "realm_pct": rp["pct"],
+            "mastery": mp["name"], "mastery_next": mp["next"], "mastery_pct": mp["pct"],
         }
         abilities.append(item)
         if best is None or item["delta"] > best["delta"]:
@@ -61,7 +61,7 @@ def build_report(child, day: str) -> dict:
             "completed_days": sum(1 for h in week if h.get("completed")),
             "challenges_done": sum(int(h.get("answered", 0)) for h in week),
             "streak": child.streak, "best_streak": child.best_streak,
-            "stars": child.stars, "badges": list(child.badges),
+            "stars": child.stars,
         },
         "biggest_improvement": (
             {"ability_zh": best["ability_zh"], "delta": best["delta"]}

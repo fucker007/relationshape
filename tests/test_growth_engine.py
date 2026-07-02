@@ -68,7 +68,7 @@ def test_objective_wrong_returns_explain_and_still_feeds_effort(tmp_path):
     o = eng.answer(c.child_id, logic["cid"], "瞎写一个", now=DAY0)["outcome"]
     assert o["correct"] is False
     assert o["explain"] and o["extend"]          # 答错给讲解引申
-    assert o["growth_earned"] > 0                 # 答错仍喂努力
+    assert o["fed"] and o["fed"]["material"]      # 答错仍喂到宠物
 
 
 def test_effort_challenge_has_no_correctness(tmp_path):
@@ -78,17 +78,18 @@ def test_effort_challenge_has_no_correctness(tmp_path):
             if ch["kind"] == "expression"][0]
     o = eng.answer(c.child_id, expr["cid"], "我最开心的是今天考试得了满分", now=DAY0)["outcome"]
     assert o["correct"] is None
-    assert o["growth_earned"] > 0
+    assert o["stars_earned"] > 0 and o["fed"]
 
 
 def test_pet_fed_by_effort_not_correctness(tmp_path):
-    """红线：一个客观题全答错的孩子，照样养大宠物、照样连续打卡。"""
+    """红线：一个客观题全答错的孩子，照样喂养宠物、照样连续打卡。"""
     eng = _eng(tmp_path)
     c = eng.create_child("阿错", now=DAY0)
     home = _answer_all(eng, c.child_id, DAY0, mode="wrong")
     assert home["today"]["all_done"]
     assert home["streak"] == 1
-    assert home["pet"]["growth_value"] > 0        # 没被"答错"饿死
+    assert sum(home["pet"]["materials"].values()) >= 5   # 答错也喂到，没被饿死
+    assert home["pet"]["realm_day"] == 1                  # 孵化照样推进
 
 
 def test_streak_consecutive_then_reset(tmp_path):
@@ -129,7 +130,7 @@ def test_battle_loser_still_rewarded(tmp_path):
     res = eng.battle(strong.child_id, weak.child_id, now=DAY0 + timedelta(days=20))
     assert "error" not in res
     loser = "b" if res["winner"] == "a" else "a"
-    assert res[f"{loser}_reward"]["growth"] > 0     # 输了不被罚
+    assert res[f"{loser}_reward"]["material"]["n"] > 0   # 输了不被罚，切磋有所得
     assert res[f"{loser}_reward"]["stars"] > 0
 
 
@@ -215,16 +216,16 @@ def test_accuracy_tracked_and_real(tmp_path):
     assert abil["expression"]["accuracy"] is None     # 表达无对错
 
 
-def test_cards_drop_on_correct_and_realm(tmp_path):
+def test_cards_drop_on_correct_and_mastery(tmp_path):
     eng = _eng(tmp_path)
     c = eng.create_child("卡", now=DAY0)
-    for d in range(6):                                # 多答对 → 累积藏品卡 + 突破境界卡
+    for d in range(6):                                # 多答对 → 累积藏品卡 + 修为突破卡
         _answer_all(eng, c.child_id, DAY0 + timedelta(days=d), mode="correct")
     home = eng.home(c.child_id, now=DAY0 + timedelta(days=5))
     assert home["cards"]["owned"] > 0
     alb = eng.album(c.child_id)
     owned = [x for x in alb["cards"] if x["owned"]]
-    assert any(x["source"] == "realm" for x in owned)     # 有境界卡
+    assert any(x["source"] == "mastery" for x in owned)    # 有修为卡
     assert any(x["source"] == "collect" for x in owned)    # 有藏品卡
 
 
@@ -234,24 +235,25 @@ def test_card_bonus_is_bounded(tmp_path):
     assert card_power_bonus(full) <= CARD_BONUS_CAP    # 藏卡加成有上限,不碾压平衡
 
 
-def test_realm_climbs_with_level(tmp_path):
+def test_mastery_climbs_with_level(tmp_path):
     eng = _eng(tmp_path)
-    c = eng.create_child("境", now=DAY0)
-    before = next(a for a in eng.home(c.child_id, now=DAY0)["abilities"] if a["ability"] == "logic")["realm"]
+    c = eng.create_child("修", now=DAY0)
+    before = next(a for a in eng.home(c.child_id, now=DAY0)["abilities"] if a["ability"] == "logic")["mastery"]
     for d in range(8):
         _answer_all(eng, c.child_id, DAY0 + timedelta(days=d), mode="correct")
-    after = next(a for a in eng.home(c.child_id, now=DAY0 + timedelta(days=7))["abilities"] if a["ability"] == "logic")["realm"]
-    assert before != after                              # 境界随真实等级晋升
+    after = next(a for a in eng.home(c.child_id, now=DAY0 + timedelta(days=7))["abilities"] if a["ability"] == "logic")["mastery"]
+    assert before != after                              # 修为随真实等级晋升
 
 
 def test_persistence_roundtrip(tmp_path):
     eng = _eng(tmp_path)
     c = eng.create_child("存档", now=DAY0)
     _answer_all(eng, c.child_id, DAY0)
-    gv = eng.home(c.child_id, now=DAY0)["pet"]["growth_value"]
+    before = eng.home(c.child_id, now=DAY0)
     eng2 = _eng(tmp_path)                          # 同目录、全新引擎实例
     h = eng2.home(c.child_id, now=DAY0)
-    assert h["pet"]["growth_value"] == gv
+    assert h["pet"]["materials"] == before["pet"]["materials"]
+    assert h["stars"] == before["stars"]
     assert h["streak"] == 1
 
 
@@ -259,7 +261,7 @@ def test_egg_frames_5_questions_as_cravings(tmp_path):
     eng = _eng(tmp_path)
     c = eng.create_child("蛋", now=DAY0)
     h = eng.home(c.child_id, now=DAY0)
-    assert h["cultivation"]["stage"] == "egg" and h["cultivation"]["egg_day"] == 0
+    assert h["pet"]["realm"] == "egg" and h["pet"]["realm_day"] == 0
     for ch in h["today"]["challenges"]:
         assert ch["domain"] in ("li", "wen", "bo")
         assert ch["material"] and ch["craving"]     # 每题都被宠物包成"渴求"
@@ -271,17 +273,16 @@ def test_feeding_produces_material(tmp_path):
     ch = eng.home(c.child_id, now=DAY0)["today"]["challenges"][0]
     o = eng.answer(c.child_id, ch["cid"], "随便", now=DAY0)["outcome"]
     assert o["fed"] and o["fed"]["material"]
-    assert sum(eng.home(c.child_id, now=DAY0)["cultivation"]["materials"].values()) >= 1
+    assert sum(eng.home(c.child_id, now=DAY0)["pet"]["materials"].values()) >= 1
 
 
 def test_hatches_after_7_days(tmp_path):
     eng = _eng(tmp_path)
     c = eng.create_child("蛋", now=DAY0)
-    for d in range(7):
-        _answer_all(eng, c.child_id, DAY0 + timedelta(days=d))
+    _hatch(eng, c.child_id, DAY0)
     h = eng.home(c.child_id, now=DAY0 + timedelta(days=6))
-    assert h["cultivation"]["stage"] == "youth"
-    assert h["cultivation"]["species"]            # 第 7 天领养到一只专属宠
+    assert h["pet"]["realm"] == "youth"
+    assert h["pet"]["species"]                    # 第 7 天领养到一只专属宠
 
 
 def test_species_personalized_by_affinity(tmp_path):
@@ -295,8 +296,23 @@ def test_species_personalized_by_affinity(tmp_path):
             ans = ("错误答案" if cobj.score_mode == ScoreMode.OBJECTIVE
                    else "我想讲一个很长的故事，关于一只会飞的猫和它的奇妙冒险")
             eng.answer(c.child_id, ch["cid"], ans, now=now)
-    sp = eng.home(c.child_id, now=DAY0 + timedelta(days=6))["cultivation"]["species"]
+    sp = eng.home(c.child_id, now=DAY0 + timedelta(days=6))["pet"]["species"]
     assert sp["name"] == "言灵狐"
+
+
+def test_vitality_and_away_are_derived(tmp_path):
+    """3 天不来：蛋沉睡/宠云游；答一题即被唤回（不惩罚、只期待）。"""
+    eng = _eng(tmp_path)
+    c = eng.create_child("念", now=DAY0)
+    _answer_all(eng, c.child_id, DAY0)
+    later = DAY0 + timedelta(days=4)
+    h = eng.home(c.child_id, now=later)
+    assert h["pet"]["mode"] == "sleeping"          # 蛋期叫沉睡
+    assert h["pet"]["vitality"] < 70
+    ch = h["today"]["challenges"][0]
+    r = eng.answer(c.child_id, ch["cid"], "我回来啦，想到了一个很有意思的答案", now=later)
+    assert any(e["kind"] == "return" for e in r["events"])
+    assert r["home"]["pet"]["mode"] == "normal"
 
 
 def test_report_structure_and_honest_accuracy(tmp_path):

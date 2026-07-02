@@ -16,7 +16,6 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const STAGE_EMOJI = ["🥚", "🐣", "🦎", "🐲", "🐉", "🌟"];
 const ELEM_COLOR = { "晶": "#4aa3ff", "焰": "#ff6b5a", "声": "#b07bff", "风": "#46c98b", "光": "#ffc24a" };
 
 const slots = {
@@ -26,12 +25,17 @@ const slots = {
 const panel = (slot) => document.querySelector(`.device[data-slot="${slot}"]`);
 
 /* ---------------- 小屏幕：宠物 + 成长轨道 ---------------- */
+const MAT_ZH = { li: "晶尘", wen: "韵露", bo: "灵芝" };
 function petScreen(h) {
   const p = h.pet;
-  const emoji = STAGE_EMOJI[Math.min(p.stage_index, STAGE_EMOJI.length - 1)];
+  const isEgg = p.realm === "egg";
+  const emoji = isEgg ? "🥚" : (p.species ? p.species.emoji : "🐲");
   const color = ELEM_COLOR[p.element] || "#5b8cff";
-  const items = Object.values(p.equipped || {});
-  const st = p.next_stage ? `${p.stage_name} → ${p.next_stage} ${p.stage_pct}%` : `${p.stage_name}（满级）`;
+  const title = isEgg ? `神秘的蛋 · 孵化 ${p.realm_day}/${p.days_to_hatch} 天` : `${p.species.name} · ${p.realm_zh}`;
+  const pct = isEgg ? Math.round(100 * p.realm_day / p.days_to_hatch)
+    : Math.round(100 * h.today.done / Math.max(1, h.today.total));
+  const mats = Object.entries(p.materials || {})
+    .map(([d, n]) => `<span class="chip item">${esc(MAT_ZH[d] || d)} ×${n}</span>`).join("");
   return `
   <div class="screen" style="--elem:${color}">
     <div class="track">
@@ -41,17 +45,13 @@ function petScreen(h) {
     </div>
     <div class="petwrap">
       <div class="petemoji ${h.combat.form === "hot" ? "hot" : ""}">${emoji}</div>
-      <div class="petname">${esc(p.stage_name)} · <span class="elem">${esc(p.dominant_zh)}（${esc(p.element)}系）</span>
+      <div class="petname">${esc(title)} · <span class="elem">${esc(p.dominant_zh)}亲和（${esc(p.element)}系）</span>
         ${h.combat.form === "hot" ? '<span class="formtag">🔥状态火热</span>' : ""}</div>
     </div>
-    <div class="stagebar"><i style="width:${p.stage_pct}%"></i><span>${esc(st)}</span></div>
+    <div class="stagebar"><i style="width:${pct}%"></i><span>${isEgg ? "孵化进度" : "今日修炼"} ${pct}%</span></div>
     <div class="vitwrap"><div class="vit"><i style="width:${p.vitality}%"></i></div></div>
-    <div class="chips">${items.length
-      ? items.map((i) => `<span class="chip item">🎽 ${esc(i)}</span>`).join("")
-      : '<span class="muted">坚持挑战 / 得徽章可解锁装扮</span>'}</div>
-    <div class="chips">${(h.badges || []).length
-      ? h.badges.map((b) => `<span class="chip badge">🏅${esc(b)}</span>`).join("")
-      : '<span class="muted">徽章墙空空的</span>'}</div>
+    <div class="metaline">${esc(p.status_line)}</div>
+    <div class="chips">${mats || '<span class="muted">还没有灵材——答题就是喂养</span>'}</div>
   </div>`;
 }
 
@@ -82,7 +82,7 @@ function abilitiesBlock(h) {
   return `<div class="abilities">${h.abilities.map((a) => {
     const acc = a.accuracy == null ? "练习" : a.accuracy + "%";
     return `<div class="ability">
-      <span class="abn">${esc(a.ability_zh)}<i class="realm">${esc(a.realm)}</i></span>
+      <span class="abn">${esc(a.ability_zh)}<i class="realm">${esc(a.mastery)}</i></span>
       <div class="bar"><i style="width:${a.level}%"></i></div>
       <span class="abval">${a.level}<i>${acc}</i></span></div>`;
   }).join("")}</div>`;
@@ -119,7 +119,7 @@ function feedbackBlock(slot) {
     html += `<div class="feedback"><div class="fb-main">${esc(o.feedback)}</div>
       ${showExplain ? `<div class="fb-explain">📘 讲解：${esc(o.explain)}</div>` : ""}
       ${o.extend ? `<div class="fb-extend">💡 再想一步：${esc(o.extend)}</div>` : ""}
-      <div class="fb-reward">+${o.stars_earned}⭐　+${o.growth_earned} 成长值${o.is_highlight ? "　🌟 高光" : ""}</div>
+      <div class="fb-reward">+${o.stars_earned}⭐${o.fed ? `　+1颗${esc(o.fed.material)}` : ""}${o.is_highlight ? "　🌟 高光" : ""}</div>
       ${cards ? `<div class="fb-cards">${cards}</div>` : ""}</div>`;
   }
   if (evs.length) html += `<div class="eventfeed">${evs.map((e) =>
@@ -171,7 +171,7 @@ function reportView(rep) {
   const w = rep.this_week;
   const rows = rep.abilities.map((a) => {
     const acc = a.accuracy == null ? "—（练习量）" : a.accuracy + "%";
-    return `<tr><td>${esc(a.ability_zh)}<i class="rm">${esc(a.realm)}</i></td><td>${a.week_ago}</td><td>${a.now}</td>
+    return `<tr><td>${esc(a.ability_zh)}<i class="rm">${esc(a.mastery)}</i></td><td>${a.week_ago}</td><td>${a.now}</td>
       <td class="delta ${a.delta > 0 ? "up" : "flat"}">${a.delta > 0 ? "+" + a.delta : a.delta}</td><td>${a.practiced}</td><td>${acc}</td></tr>`;
   }).join("");
   const bd = rep.combat.breakdown.map((p) => `${esc(p.label)} ${p.value}<i>(${esc(p.source)})</i>`).join(" ＋ ");
@@ -179,7 +179,7 @@ function reportView(rep) {
     || '<span class="muted">本周还没有高光片段。</span>';
   const imp = rep.biggest_improvement ? `${esc(rep.biggest_improvement.ability_zh)} +${rep.biggest_improvement.delta}` : "—";
   return `<h3>👪 ${esc(rep.name)} · 本周成长报告</h3>
-    <table class="rep-abil"><tr><th>能力·境界</th><th>周初</th><th>现在</th><th>变化</th><th>练习</th><th>正确率</th></tr>${rows}</table>
+    <table class="rep-abil"><tr><th>能力·修为</th><th>周初</th><th>现在</th><th>变化</th><th>练习</th><th>正确率</th></tr>${rows}</table>
     <div class="rep-power">⚔️ 战力 <b>${rep.combat.power}</b>（${esc(rep.combat.rank)}）＝ ${bd}</div>
     <div class="rep-week">
       <div class="stat"><b>${w.completed_days}</b>完成天数</div><div class="stat"><b>${w.challenges_done}</b>挑战数</div>
@@ -217,11 +217,11 @@ async function bump() {
   renderHome("A", res.a_home); renderHome("B", res.b_home);
 }
 
-function fighterHTML(side, name, rank, stats) {
+function fighterHTML(side, name, rank, emoji, stats) {
   return `<div class="fighter" id="f${side}" style="--elem:${ELEM_COLOR[stats.element] || "#888"}">
     <div class="fname">${esc(name)} <span class="frank">${esc(rank)}</span></div>
     <div class="hpbar"><i id="hp${side}" style="width:100%"></i></div>
-    <div class="fpet" id="pet${side}">${stats.form === "hot" ? "🔥" : ""}🐉</div>
+    <div class="fpet" id="pet${side}">${stats.form === "hot" ? "🔥" : ""}${emoji}</div>
     <div class="ftags">${esc(stats.element)}系 · 战力${stats.battle_power}${stats.form === "hot" ? " · 火热" : ""}</div>
   </div>`;
 }
@@ -230,11 +230,11 @@ async function playBattle(res) {
   const card = $("#modal-card");
   card.innerHTML = `
     <div class="arena">
-      ${fighterHTML("a", res.a_name, res.a_rank, res.a_stats)}
+      ${fighterHTML("a", res.a_name, res.a_rank, res.a_emoji, res.a_stats)}
       <div class="arena-mid"><div class="vsflash">VS</div><button id="bt-skip" class="ghost">跳过 »</button></div>
-      ${fighterHTML("b", res.b_name, res.b_rank, res.b_stats)}
+      ${fighterHTML("b", res.b_name, res.b_rank, res.b_emoji, res.b_stats)}
     </div>
-    ${res.friendly ? '<div class="bt-friendly">🤝 段位悬殊 → 友谊赛：抹平差距、点到为止，输了不掉成长值</div>' : ""}
+    ${res.friendly ? '<div class="bt-friendly">🤝 实力悬殊 → 友谊赛：抹平差距、点到为止，输了不掉成长</div>' : ""}
     <div id="bt-result" class="hidden"></div>`;
   $("#modal").classList.remove("hidden");
 
@@ -268,8 +268,8 @@ async function playBattle(res) {
   const newCards = [...(res.a_new_cards || []), ...(res.b_new_cards || [])];
   $("#bt-result").innerHTML = `
     <div class="bt-narr">${res.ko ? "💥 " : "🏁 "}${esc(res.narration)}</div>
-    <div class="bt-reward"><span>${esc(res.a_name)}：+${res.a_reward.stars}⭐ +${res.a_reward.growth}成长</span>
-      <span>${esc(res.b_name)}：+${res.b_reward.stars}⭐ +${res.b_reward.growth}成长</span></div>
+    <div class="bt-reward"><span>${esc(res.a_name)}：+${res.a_reward.stars}⭐ +${res.a_reward.material.n}颗${esc(res.a_reward.material.name)}</span>
+      <span>${esc(res.b_name)}：+${res.b_reward.stars}⭐ +${res.b_reward.material.n}颗${esc(res.b_reward.material.name)}</span></div>
     ${newCards.length ? `<div class="bt-cards">新卡：${newCards.map((c) => `<span class="minicard" style="border-color:${c.color}">🃏${esc(c.name)}</span>`).join("")}</div>` : ""}
     <div class="bt-actions"><button id="bt-again">再碰一碰</button><button id="bt-close" class="ghost">关闭</button></div>`;
   $("#bt-result").classList.remove("hidden");

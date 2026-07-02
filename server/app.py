@@ -58,6 +58,26 @@ def _demo_answer(engine, cid: str) -> str:
     return "我想了很多，觉得这件事很有意思。"
 
 
+def seed_demo(engine, now) -> bool:
+    """无孩子时注入演示世界（唯一实现，--seed 与 /api/seed 共用）。
+
+    小禾连续喂了 6 天（今天喂满即破壳），阿哲只玩过昨天——一老一新，正好演示对比。
+    """
+    if engine.store.list_ids():
+        return False
+    a = engine.create_child("小禾", age=8, grade=2, now=now)
+    b = engine.create_child("阿哲", age=9, grade=3, now=now)
+
+    def play(child_id, day_now):
+        for ch in engine.home(child_id, now=day_now)["today"]["challenges"]:
+            engine.answer(child_id, ch["cid"], _demo_answer(engine, ch["cid"]), now=day_now)
+
+    for d in range(6, 0, -1):
+        play(a.child_id, now - timedelta(days=d))
+    play(b.child_id, now - timedelta(days=1))
+    return True
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args) -> None:   # 安静
         pass
@@ -171,7 +191,8 @@ class Handler(BaseHTTPRequestHandler):
                                   int(b.get("grade", 2)), now=now)
             return self._send_json({"child_id": ch.child_id})
         if path == "/api/seed":
-            return self._send_json(self._seed(eng, now))
+            seeded = seed_demo(eng, now)
+            return self._send_json({"seeded": seeded, "children": eng.list_children(now=now)})
         if path == "/api/battle":
             b = self._body()
             return self._send_json(eng.battle(b["a"], b["b"], now=now))
@@ -183,33 +204,6 @@ class Handler(BaseHTTPRequestHandler):
                 b = self._body()
                 return self._send_json(eng.answer(cid, b["cid"], b.get("answer", ""), now=now))
         raise KeyError(path)
-
-    # ---- 演示数据 ----
-    def _seed(self, eng: GrowthEngine, now: datetime) -> dict:
-        """没有孩子时，造两个演示设备并回填几天历史，让对战/报告一打开就有内容。
-
-        关键：故意让两个孩子努力程度不同——小禾连续练了 5 天，阿哲才练了 1 天——
-        这样碰一碰会触发"友谊赛"，演示弱者不被碾压的设计。
-        """
-        if eng.store.list_ids():
-            return {"seeded": False, "children": eng.list_children(now=now)}
-
-        a = eng.create_child("小禾", age=8, grade=2, now=now)
-        b = eng.create_child("阿哲", age=9, grade=3, now=now)
-
-        def play(child_id, day_now):
-            h = eng.home(child_id, now=day_now)
-            for ch in h["today"]["challenges"]:
-                eng.answer(child_id, ch["cid"], _demo_answer(eng, ch["cid"]), now=day_now)
-
-        # 小禾：过去 5 天连续完成（今天先留空，等用户自己点）
-        for d in range(6, 0, -1):
-            play(a.child_id, now - timedelta(days=d))
-        # 阿哲：只在昨天玩过一次
-        play(b.child_id, now - timedelta(days=1))
-
-        return {"seeded": True, "children": eng.list_children(now=now)}
-
 
 def main() -> None:
     ap = argparse.ArgumentParser()
@@ -224,17 +218,8 @@ def main() -> None:
     httpd.clock = {"now": BASE_NOW}
     httpd.lock = threading.Lock()
 
-    if args.seed and not engine.store.list_ids():
-        a = engine.create_child("小禾", age=8, grade=2, now=BASE_NOW)
-        b = engine.create_child("阿哲", age=9, grade=3, now=BASE_NOW)
-
-        def play(cid, dn):
-            for ch in engine.home(cid, now=dn)["today"]["challenges"]:
-                engine.answer(cid, ch["cid"], _demo_answer(engine, ch["cid"]), now=dn)
-        for d in range(6, 0, -1):
-            play(a.child_id, BASE_NOW - timedelta(days=d))
-        play(b.child_id, BASE_NOW - timedelta(days=1))
-        print(f"[seed] 已注入演示数据：{a.child_id}=小禾, {b.child_id}=阿哲")
+    if args.seed and seed_demo(engine, BASE_NOW):
+        print("[seed] 已注入演示数据：小禾（明日破壳）+ 阿哲（新蛋）")
 
     print(f"成长挑战机模拟器 → http://127.0.0.1:{args.port}")
     print(f"状态目录：{args.state_dir}（每个孩子一份 JSON，可直接查看/做后台测试）")
