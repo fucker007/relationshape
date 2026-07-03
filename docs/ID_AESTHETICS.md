@@ -40,7 +40,16 @@
    儿童对自主运动/眼睛线索有很强的"生命体"归因（发展心理学的 animacy 研究传统；Tamagotchi 效应）。静态造型只是躯壳，**眼环的呼吸/眨眼/瞳孔亮灭**才是"它活着"的证据。
    → 眼环灯效状态机：睡（0.1Hz 缓呼吸）/ 醒（睁眼瞬亮）/ 火热（1Hz 脉动）/ 云游（熄灭）/ 拍照（常亮，硬件串联）。
 
-4. **尺寸**：110×68×20mm（黄金比例正面 110:68≈1.618），2.8-3.5" 竖屏嵌背面，顶部单颗 14mm 大键，下角挂绳孔。
+4. **尺寸与重量（按"挂脖佩戴"重新收紧）**：**≈100×62×18mm、目标 ≤100g**（胸前悬挂的舒适上限；跑动不甩打）。屏幕定 2.8" 竖屏嵌背面，顶部单颗 14mm 大键。电池按重量倒推 900-1100mAh。
+
+5. **佩戴方式：挂脖为主 + 腰挂为辅（产品形态的定盘星）**
+   佩戴逻辑由使用闭环决定：游历拍照要"抬手即拍"（一秒出机）、手癖要"随时在手里盘"、碰一碰在课间随时发生——设备必须**在身上**，不是在包上。
+   - **挂点在顶部正中**（不是角落）：垂挂时"眼睛"朝前——宠物趴在胸口、和孩子看同一个世界；举起即拍，无需摘下（绳长以能抬至眼前为准，环长约 42-46cm）。
+   - **屏幕朝内贴胸**：一防磕碰，二成叙事——"它睡在你怀里"；翻转即交互。
+   - **胸前 = 行走的展示位**：呼吸眼环在校园里就是广告位与社交发起器，碰一碰变成两个孩子凑近"碰额头"的自然动作。
+   - **手癖设计（fidget = 留存的物理形态）**：鹅卵石亲肤哑光壳（"安抚石"手感）、大键的高级段落感、戳一下宠物会回应（已有 poke 交互）——让"无聊时盘它"成为日常肌肉记忆。
+   - **安全硬规矩**：挂绳必须用**儿童安全断开扣**（受力即脱开，防勒），符合 GB 6675 绳带要求；附**腰挂/背带夹**转换件（体育课与低龄场景改腰挂）；硅胶缓冲套 + 生活防泼溅。
+   - **叙事大礼——"灵宠御守"**：挂在胸前的修仙灵宠 = 电子时代的平安符。爷爷奶奶"给孙子挂平安符"的文化直觉直接接通礼物场景，包装即"开光领养"仪式。
 
 ---
 
@@ -70,7 +79,7 @@
 ## 四、防"幼齿化"红线（KGOY 检查清单）
 
 出图/出模前逐条过：
-- [ ] 三年级男生愿意把它挂在书包外侧吗？（终极检验）
+- [ ] 三年级男生愿意把它**挂在脖子上走进教室**吗？（终极检验——比挂书包苛刻一个量级）
 - [ ] 无腮红贴片、无双眼笑脸、无婴儿奶嘴形态语言
 - [ ] 配色不是粉彩马卡龙全家桶
 - [ ] 有一处"力量感"细节（眼环的锐利光弧/境界纹路刻线），呼应修仙世界观
@@ -84,13 +93,18 @@
 
 **主提示词（英文，Midjourney）：**
 
-> Industrial design concept render of a palm-sized handheld companion device for children aged 7-9 (NOT toddlers). Egg-shaped body, golden-ratio front (about 110×68×20mm), every edge fully rounded, minimum fillet 8mm. Warm off-white matte soft-touch body (#F5F1E8) — clean and premium, not toy-like. The front has only ONE large eye positioned slightly above center: a small dark camera lens as the pupil inside a glowing saturated blue LED halo ring (#3D8BFF), eye diameter about one-third of the face width, with a subtle sculpted eyelid curve — it reads as a calm little creature with one bright curious eye, cute but capable, never babyish. One 14mm round physical button on top in matching blue, lanyard hole at lower corner. Studio product photography, soft shadow, light-gray seamless background, octane render, ultra-detailed, Pixar-charm × Dieter-Rams-minimal --ar 4:5 --no smartphone, camera dials, metal lens ring, desk robot, two eyes, mouth, blush marks, pastel candy colors, glossy cheap plastic, sharp corners
+> Industrial design concept render of a neck-worn companion device for children aged 7-9 (NOT toddlers), like a pendant amulet. Egg-shaped body, golden-ratio front (about 100×62×18mm), every edge fully rounded, minimum fillet 8mm, an integrated lanyard loop sculpted into the top center of the shell with a soft fabric lanyard and child-safe breakaway clasp. Warm off-white matte soft-touch body (#F5F1E8) — clean and premium, not toy-like. The front has only ONE large eye positioned slightly above center: a small dark camera lens as the pupil inside a glowing saturated blue LED halo ring (#3D8BFF), eye diameter about one-third of the face width, with a subtle sculpted eyelid curve — a calm little creature hanging on the chest, its one bright curious eye facing the world, cute but capable, never babyish. One 14mm round physical button on the top edge in matching blue. Studio product photography, soft shadow, light-gray seamless background, octane render, ultra-detailed, Pixar-charm × Dieter-Rams-minimal --ar 4:5 --no smartphone, camera dials, metal lens ring, desk robot, two eyes, mouth, blush marks, pastel candy colors, glossy cheap plastic, sharp corners, backpack
 
 **主提示词（中文，即梦/可灵）：**
 
-> 7-9 岁小学生（不是幼儿）使用的手持伙伴设备工业设计渲染图。蛋形机身，正面黄金比例（约 110×68×20 毫米），通体圆润、最小圆角 8 毫米。暖白色哑光亲肤主体（不像玩具、有高级感）。正面只有一只大眼睛、位置略高于中心：小小的深色摄像头镜片是瞳孔，外圈是高饱和宝石蓝发光 LED 光环如虹膜，眼睛直径约占正面宽度三分之一，壳体带轻微眼睑弧度——看起来是一只安静而好奇的小生物，可爱但有力量感，绝不幼齿、绝不像数码产品。顶部一颗 14 毫米蓝色圆形实体键，下角挂绳孔。影棚产品摄影，柔和投影，浅灰无缝背景，超高精度渲染，皮克斯可爱感×德系极简。负面：不要手机/相机造型/金属镜圈/桌面机器人/两只眼睛/嘴巴/腮红/马卡龙粉彩/廉价亮塑料/尖角。
+> 7-9 岁小学生（不是幼儿）挂脖佩戴的伙伴设备工业设计渲染图，像一枚御守吊坠。蛋形机身，正面黄金比例（约 100×62×18 毫米），通体圆润、最小圆角 8 毫米，**顶部正中一体成型的挂绳环**，配织物挂绳与儿童安全断开扣。暖白色哑光亲肤主体（不像玩具、有高级感）。正面只有一只大眼睛、位置略高于中心：小小的深色摄像头镜片是瞳孔，外圈是高饱和宝石蓝发光 LED 光环如虹膜，眼睛直径约占正面宽度三分之一，壳体带轻微眼睑弧度——像一只趴在胸口、睁着一只好奇眼睛看世界的安静小生物，可爱但有力量感，绝不幼齿、绝不像数码产品。顶部边缘一颗 14 毫米蓝色圆形实体键。影棚产品摄影，柔和投影，浅灰无缝背景，超高精度渲染，皮克斯可爱感×德系极简。负面：不要手机/相机造型/金属镜圈/桌面机器人/两只眼睛/嘴巴/腮红/马卡龙粉彩/廉价亮塑料/尖角/书包。
 
-**场景变体沿用上一版 8 条**，其中"五色系全家福"更新为：
+**佩戴场景变体（新增 3 条，优先出这三张）：**
+- **胸前佩戴**：「一个 8 岁小学生穿校服，设备用织物挂绳挂在胸前，眼环微微发光，孩子低头和它对视，课间走廊环境，生活方式摄影」/ an 8-year-old in school uniform wearing the device on a fabric lanyard at chest level, the eye-ring softly glowing, kid glancing down at it, school corridor, lifestyle photo --ar 3:2
+- **抬手即拍**：「孩子不摘挂绳、单手将胸前的设备举到眼前对准一只蜗牛拍摄，展示挂绳长度允许抬至眼部」/ the kid lifts the device to eye level on its lanyard without unclipping, aiming at a snail, quick-draw shooting gesture --ar 3:2
+- **腰挂形态**：「设备通过短夹扣挂在裤腰/腰包上，像随身法宝」/ the device clipped to the waist belt with a short clip accessory, like a carried talisman --ar 4:5
+
+**其余场景变体沿用上一版 8 条**，其中"五色系全家福"更新为：
 > 五台一排：暖白主体不变，点睛色分别为宝石蓝 #3D8BFF、灵紫 #8A63F4、薄荷绿 #2FBF8F、珊瑚橙 #FF6A5B、琥珀金 #FFB12E，眼环发光与按键同色 / lineup of five: same warm-white body, accent colors sapphire blue / soft violet / mint green / coral / amber, glowing eye-ring matching each accent --ar 3:2
 
 ---
